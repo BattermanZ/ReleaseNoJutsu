@@ -27,8 +27,9 @@ const (
 )
 
 var (
-	logger  *log.Logger
-	dbMutex sync.Mutex
+	logger     *log.Logger
+	dbMutex    sync.Mutex
+	allowedUsers []int64 // Add allowedUsers variable
 )
 
 type MangaResponse struct {
@@ -93,6 +94,18 @@ func main() {
 	}
 
 	fmt.Printf("Authorized on account %s\n", bot.Self.UserName)
+
+	allowedUsersStr := os.Getenv("TELEGRAM_ALLOWED_USERS")
+	allowedUserIDs := strings.Split(allowedUsersStr, ",")
+	for _, userID := range allowedUserIDs {
+		id, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
+		if err == nil {
+			allowedUsers = append(allowedUsers, id)
+		}
+	}
+
+	fmt.Printf("Number of allowed users: %d\n", len(allowedUsers))
+
 	fmt.Println("ReleaseNoJutsu initialized successfully!")
 
 	// Set up the cron job for daily updates
@@ -260,7 +273,6 @@ func sendNewChaptersNotificationToAllUsers(bot *tgbotapi.BotAPI, db *sql.DB, man
 	}
 }
 
-
 func handleUpdates(bot *tgbotapi.BotAPI, db *sql.DB) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -269,11 +281,33 @@ func handleUpdates(bot *tgbotapi.BotAPI, db *sql.DB) {
 
 	for update := range updates {
 		if update.Message != nil {
+			if !checkAuthorization(update.Message.From.ID) {
+				sendUnauthorizedMessage(bot, update.Message.Chat.ID)
+				continue
+			}
 			handleMessage(bot, update.Message, db)
 		} else if update.CallbackQuery != nil {
+			if !checkAuthorization(update.CallbackQuery.From.ID) {
+				sendUnauthorizedMessage(bot, update.CallbackQuery.Message.Chat.ID)
+				continue
+			}
 			handleCallbackQuery(bot, update.CallbackQuery, db)
 		}
 	}
+}
+
+func checkAuthorization(userID int64) bool {
+	for _, allowedID := range allowedUsers {
+		if userID == allowedID {
+			return true
+		}
+	}
+	return false
+}
+
+func sendUnauthorizedMessage(bot *tgbotapi.BotAPI, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "You are not authorized to use this bot.")
+	bot.Send(msg)
 }
 
 func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, db *sql.DB) {
@@ -312,10 +346,7 @@ func handleReply(bot *tgbotapi.BotAPI, message *tgbotapi.Message, db *sql.DB) {
 		result := addManga(db, message.Text)
 		msg := tgbotapi.NewMessage(message.Chat.ID, result)
 		msg.ParseMode = "Markdown"
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending add manga result: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "I'm sorry, I didn't understand that reply. Please use the menu or commands.")
 		_, err := bot.Send(msg)
@@ -336,18 +367,12 @@ func handleCallbackQuery(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, db
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, "📚 *Add a New Manga*\n\nPlease enter the MangaDex ID of the manga you want to add.\n\nYou can find the ID in the manga's URL on MangaDex. For example, in 'https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000', the ID is '123e4567-e89b-12d3-a456-426614174000'.")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true}
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending add manga prompt: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
 	case "list_manga":
 		result := listManga(db)
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, result)
 		msg.ParseMode = "Markdown"
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending manga list: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
 	case "check_new":
 		sendMangaSelectionMenu(bot, query.Message.Chat.ID, db, "check_new")
 	case "mark_read":
@@ -380,10 +405,7 @@ func handleCallbackQuery(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, db
 		result := markChapterAsRead(db, mangaID, chapterNumber)
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, result)
 		msg.ParseMode = "Markdown"
-		_, err = bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending mark chapter result: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
 	case "unread_chapter":
 		if len(parts) < 3 {
 			logger.Printf("Invalid callback data for unread_chapter: %s\n", query.Data)
@@ -398,10 +420,9 @@ func handleCallbackQuery(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, db
 		result := markChapterAsUnread(db, mangaID, chapterNumber)
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, result)
 		msg.ParseMode = "Markdown"
-		_, err = bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending mark chapter result: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
+	case "main_menu":
+		sendMainMenu(bot, query.Message.Chat.ID)
 	}
 
 	callback := tgbotapi.NewCallback(query.ID, "")
@@ -416,10 +437,14 @@ func sendMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📚 Add manga", "add_manga"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📋 List followed manga", "list_manga"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔍 Check for new chapters", "check_new"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ Mark chapter as read", "mark_read"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
@@ -448,6 +473,31 @@ What would you like to do?`
 	}
 }
 
+func sendMessageWithMainMenuButton(bot *tgbotapi.BotAPI, msg tgbotapi.MessageConfig) {
+	mainMenuButton := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "main_menu"),
+		),
+	)
+
+	if msg.ReplyMarkup != nil {
+		switch keyboard := msg.ReplyMarkup.(type) {
+		case tgbotapi.InlineKeyboardMarkup:
+			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, mainMenuButton.InlineKeyboard...)
+			msg.ReplyMarkup = keyboard
+		default:
+			msg.ReplyMarkup = mainMenuButton
+		}
+	} else {
+		msg.ReplyMarkup = mainMenuButton
+	}
+
+	_, err := bot.Send(msg)
+	if err != nil {
+		logger.Printf("Error sending message with main menu button: %v\n", err)
+	}
+}
+
 func sendHelpMessage(bot *tgbotapi.BotAPI, chatID int64) {
 	logAction(chatID, "Sent help message", "")
 
@@ -470,10 +520,7 @@ If you need further assistance, feel free to ask!`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ParseMode = "Markdown"
-	_, err := bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending help message: %v\n", err)
-	}
+	sendMessageWithMainMenuButton(bot, msg)
 }
 
 func addManga(db *sql.DB, mangaID string) string {
@@ -659,10 +706,7 @@ func sendMangaSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, next
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
-	_, err = bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending manga selection menu: %v\n", err)
-	}
+	sendMessageWithMainMenuButton(bot, msg)
 }
 
 func sendChapterSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaID int) {
@@ -710,10 +754,7 @@ func sendChapterSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, ma
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
-	_, err = bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending chapter selection menu: %v\n", err)
-	}
+	sendMessageWithMainMenuButton(bot, msg)
 }
 
 func sendReadChaptersMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaID int) {
@@ -764,10 +805,7 @@ func sendReadChaptersMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaI
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
-	_, err = bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending read chapters menu: %v\n", err)
-	}
+	sendMessageWithMainMenuButton(bot, msg)
 }
 
 func handleMangaSelection(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaID int, nextAction string) {
@@ -777,10 +815,7 @@ func handleMangaSelection(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaI
 		result := formatNewChaptersMessage(db, mangaID, newChapters)
 		msg := tgbotapi.NewMessage(chatID, result)
 		msg.ParseMode = "Markdown"
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending new chapters result: %v\n", err)
-		}
+		sendMessageWithMainMenuButton(bot, msg)
 	case "mark_read":
 		sendChapterSelectionMenu(bot, chatID, db, mangaID)
 	case "list_read":
