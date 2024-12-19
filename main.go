@@ -18,6 +18,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -86,15 +87,21 @@ func main() {
 		logger.Fatalf("Failed to create tables: %v", err)
 	}
 
-	fmt.Println("ReleaseNoJutsu initialized successfully!")
-
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if err != nil {
 		logger.Fatalf("Failed to initialize Telegram bot: %v", err)
 	}
 
 	fmt.Printf("Authorized on account %s\n", bot.Self.UserName)
-	fmt.Println("Telegram bot initialized. Starting to handle updates...")
+	fmt.Println("ReleaseNoJutsu initialized successfully!")
+
+	// Set up the cron job for daily updates
+	c := cron.New()
+	_, err = c.AddFunc("0 7 * * *", func() { performDailyUpdate(db, bot) })
+	if err != nil {
+		logger.Fatalf("Failed to set up cron job: %v", err)
+	}
+	c.Start()
 
 	handleUpdates(bot, db)
 }
@@ -105,7 +112,8 @@ func createTables(db *sql.DB) error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			mangadex_id TEXT NOT NULL UNIQUE,
 			title TEXT NOT NULL,
-			last_checked TIMESTAMP
+			last_checked TIMESTAMP,
+			unread_count INTEGER DEFAULT 0
 		);
 
 		CREATE TABLE IF NOT EXISTS chapters (
@@ -120,6 +128,138 @@ func createTables(db *sql.DB) error {
 	`)
 	return err
 }
+
+func performDailyUpdate(db *sql.DB, bot *tgbotapi.BotAPI) {
+	logger.Println("Starting daily update")
+
+	rows, err := db.Query("SELECT id, mangadex_id, title, last_checked FROM manga")
+	if err != nil {
+		logger.Printf("Error querying manga for daily update: %v\n", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int
+		var mangadexID, title string
+		var lastChecked time.Time
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
+		if err != nil {
+			logger.Printf("Error scanning manga row: %v\n", err)
+			continue
+		}
+
+		newChapters := checkNewChaptersForManga(db, id)
+		if len(newChapters) > 0 {
+			sendNewChaptersNotificationToAllUsers(bot, db, id, title, newChapters)
+		}
+	}
+
+	logger.Println("Daily update completed")
+}
+
+func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
+	var mangadexID, title string
+	var lastChecked time.Time
+	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).Scan(&mangadexID, &title, &lastChecked)
+	if err != nil {
+		logger.Printf("Error querying manga: %v\n", err)
+		return nil
+	}
+
+	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[chapter]=desc&translatedLanguage[]=en&limit=100", baseURL, mangadexID)
+	chapterResp, err := fetchJSON(chapterURL)
+	if err != nil {
+		logger.Printf("Error fetching chapter data for %s: %v\n", title, err)
+		return nil
+	}
+
+	var chapterFeedResp ChapterFeedResponse
+	err = json.Unmarshal(chapterResp, &chapterFeedResp)
+	if err != nil {
+		logger.Printf("Error unmarshaling chapter JSON for %s: %v\n", title, err)
+		return nil
+	}
+
+	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
+		chapterI, _ := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
+		chapterJ, _ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
+		return chapterI > chapterJ
+	})
+
+	var newChapters []ChapterInfo
+	for _, chapter := range chapterFeedResp.Data {
+		if chapter.Attributes.PublishedAt.After(lastChecked) {
+			newChapters = append(newChapters, ChapterInfo{
+				Number: chapter.Attributes.Chapter,
+				Title:  chapter.Attributes.Title,
+			})
+
+			dbMutex.Lock()
+			_, err = db.Exec(`
+				INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at, is_read) 
+				VALUES (?, ?, ?, ?, false)
+			`, mangaID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
+			dbMutex.Unlock()
+			if err != nil {
+				logger.Printf("Error inserting chapter into database: %v\n", err)
+			}
+		} else {
+			break
+		}
+	}
+
+	if len(newChapters) > 0 {
+		dbMutex.Lock()
+		_, err = db.Exec("UPDATE manga SET last_checked = ?, unread_count = unread_count + ? WHERE id = ?",
+			time.Now(), len(newChapters), mangaID)
+		dbMutex.Unlock()
+		if err != nil {
+			logger.Printf("Error updating manga last_checked and unread_count: %v\n", err)
+		}
+	}
+
+	return newChapters
+}
+
+func sendNewChaptersNotificationToAllUsers(bot *tgbotapi.BotAPI, db *sql.DB, mangaID int, mangaTitle string, newChapters []ChapterInfo) {
+	var unreadCount int
+	err := db.QueryRow("SELECT unread_count FROM manga WHERE id = ?", mangaID).Scan(&unreadCount)
+	if err != nil {
+		logger.Printf("Error querying unread count: %v\n", err)
+		unreadCount = len(newChapters) // Fallback to new chapters count
+	}
+
+	message := fmt.Sprintf("📢 *New chapters for %s*\n\n", mangaTitle)
+	for _, chapter := range newChapters {
+		message += fmt.Sprintf("📖 Chapter %s: %s\n", chapter.Number, chapter.Title)
+	}
+	message += fmt.Sprintf("\nYou have %d unread chapter(s) for this series.", unreadCount)
+
+	rows, err := db.Query("SELECT chat_id FROM users")
+	if err != nil {
+		logger.Printf("Error querying user chat IDs: %v\n", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var chatID int64
+		err := rows.Scan(&chatID)
+		if err != nil {
+			logger.Printf("Error scanning user chat ID: %v\n", err)
+			continue
+		}
+
+		msg := tgbotapi.NewMessage(chatID, message)
+		msg.ParseMode = "Markdown"
+		_, err = bot.Send(msg)
+		if err != nil {
+			logger.Printf("Error sending new chapters notification to chat ID %d: %v\n", chatID, err)
+		}
+	}
+}
+
 
 func handleUpdates(bot *tgbotapi.BotAPI, db *sql.DB) {
 	u := tgbotapi.NewUpdate(0)
@@ -403,87 +543,17 @@ func listManga(db *sql.DB) string {
 		count++
 		mangaList.WriteString(fmt.Sprintf("%d. *%s*\n   ID: `%s`\n\n", count, title, mangadexID))
 	}
-	
+
 	if count == 0 {
 		mangaList.WriteString("You're not following any manga yet. Use the 'Add manga' option to start tracking!")
 	} else {
 		mangaList.WriteString(fmt.Sprintf("Total: %d manga", count))
 	}
-	
+
 	logAction(0, "List Manga", "Listed all followed manga")
 	return mangaList.String()
 }
 
-func checkNewChaptersForManga(db *sql.DB, mangaID int) string {
-	logAction(0, "Check new chapters", fmt.Sprintf("Manga ID: %d", mangaID))
-
-	var mangadexID, title string
-	var lastChecked time.Time
-	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).Scan(&mangadexID, &title, &lastChecked)
-	if err != nil {
-		logger.Printf("Error querying manga: %v\n", err)
-		return "❌ Error retrieving manga information. Please try again."
-	}
-
-	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[chapter]=desc&translatedLanguage[]=en&limit=100", baseURL, mangadexID)
-	chapterResp, err := fetchJSON(chapterURL)
-	if err != nil {
-		logger.Printf("Error fetching chapter data for %s: %v\n", title, err)
-		return "❌ Error fetching chapter data. Please try again."
-	}
-
-	var chapterFeedResp ChapterFeedResponse
-	err = json.Unmarshal(chapterResp, &chapterFeedResp)
-	if err != nil {
-		logger.Printf("Error unmarshaling chapter JSON for %s: %v\n", title, err)
-		return "❌ Error processing chapter data. Please try again."
-	}
-
-	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
-		chapterI, _ := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
-		chapterJ, _ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
-		return chapterI > chapterJ
-	})
-
-	var newChaptersInfo strings.Builder
-	newChaptersInfo.WriteString(fmt.Sprintf("🔍 Checking new chapters for: *%s*\n\n", title))
-	newChaptersCount := 0
-	for _, chapter := range chapterFeedResp.Data {
-		if chapter.Attributes.PublishedAt.After(lastChecked) && newChaptersCount < 3 {
-			newChaptersInfo.WriteString(fmt.Sprintf("📖 *Chapter %s*: %s\n   Published: %s\n\n",
-				chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt.Format("Jan 2, 2006")))
-
-			dbMutex.Lock()
-			_, err = db.Exec(`
-				INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at) 
-				VALUES (?, ?, ?, ?)
-			`, mangaID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
-			dbMutex.Unlock()
-			if err != nil {
-				logger.Printf("Error inserting chapter into database: %v\n", err)
-			}
-			newChaptersCount++
-		}
-		if newChaptersCount >= 3 {
-			break
-		}
-	}
-
-	dbMutex.Lock()
-	_, err = db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?", time.Now(), mangaID)
-	dbMutex.Unlock()
-	if err != nil {
-		logger.Printf("Error updating last_checked for manga %s: %v\n", title, err)
-	}
-
-	logAction(0, "Check New Chapters", fmt.Sprintf("Manga: %s, New chapters: %d", title, newChaptersCount))
-
-	if newChaptersCount == 0 {
-		return fmt.Sprintf("📢 No new chapters found for *%s*\nLast checked: %s", title, lastChecked.Format("Jan 2, 2006"))
-	}
-	newChaptersInfo.WriteString(fmt.Sprintf("Total new chapters: %d", newChaptersCount))
-	return newChaptersInfo.String()
-}
 
 func markChapterAsRead(db *sql.DB, mangaID int, chapterNumber string) string {
 	logAction(0, "Mark chapter as read", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
@@ -703,7 +773,8 @@ func sendReadChaptersMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaI
 func handleMangaSelection(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaID int, nextAction string) {
 	switch nextAction {
 	case "check_new":
-		result := checkNewChaptersForManga(db, mangaID)
+		newChapters := checkNewChaptersForManga(db, mangaID)
+		result := formatNewChaptersMessage(db, mangaID, newChapters)
 		msg := tgbotapi.NewMessage(chatID, result)
 		msg.ParseMode = "Markdown"
 		_, err := bot.Send(msg)
@@ -777,5 +848,34 @@ func fetchJSON(url string) ([]byte, error) {
 
 func logAction(userID int64, action, details string) {
 	logger.Printf("[User: %d] [%s] %s\n", userID, action, details)
+}
+
+type ChapterInfo struct {
+	Number string
+	Title  string
+}
+
+func formatNewChaptersMessage(db *sql.DB, mangaID int, newChapters []ChapterInfo) string {
+	var mangaTitle string
+	err := db.QueryRow("SELECT title FROM manga WHERE id = ?", mangaID).Scan(&mangaTitle)
+	if err != nil {
+		logger.Printf("Error querying manga title: %v\n", err)
+		mangaTitle = "Unknown Manga"
+	}
+
+	var message strings.Builder
+	message.WriteString(fmt.Sprintf("🔍 New chapters for: *%s*\n\n", mangaTitle))
+
+	for _, chapter := range newChapters {
+		message.WriteString(fmt.Sprintf("📖 *Chapter %s*: %s\n", chapter.Number, chapter.Title))
+	}
+
+	if len(newChapters) == 0 {
+		message.WriteString("No new chapters found.")
+	} else {
+		message.WriteString(fmt.Sprintf("\nTotal new chapters: %d", len(newChapters)))
+	}
+
+	return message.String()
 }
 
