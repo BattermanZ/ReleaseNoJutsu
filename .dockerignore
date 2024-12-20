@@ -1,0 +1,36 @@
+# Ignore version control system directories
+.git
+.gitignore
+
+# Ignore log files
+*.log
+logs/
+
+# Ignore database files
+*.db
+database/
+
+# Ignore environment files
+# .env
+
+# Ignore any build artifacts or temporary files
+*.exe
+*.test
+*.out
+*.tmp
+
+# Ignore development and IDE-specific files
+*.swp
+.vscode/
+.idea/
+
+# Ignore documentation files
+*.md
+LICENSE
+
+# Ignore test files
+*_test.go
+
+# Ignore any other unnecessary files or directories
+node_modules/
+vendor/

@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	_ "github.com/mattn/go-sqlite3"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/robfig/cron/v3"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -27,9 +27,9 @@ const (
 )
 
 var (
-	logger     *log.Logger
-	dbMutex    sync.Mutex
-	allowedUsers []int64 // Add allowedUsers variable
+	logger       *log.Logger
+	dbMutex      sync.Mutex
+	allowedUsers []int64
 )
 
 type MangaResponse struct {
@@ -51,7 +51,16 @@ type ChapterFeedResponse struct {
 	} `json:"data"`
 }
 
+type ChapterInfo struct {
+	Number string
+	Title  string
+}
+
 func initLogger() {
+	err := os.MkdirAll("logs", os.ModePerm)
+	if err != nil {
+		log.Fatalf("Failed to create logs folder: %v", err)
+	}
 	logFile, err := os.OpenFile(filepath.Join("logs", appName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
@@ -93,6 +102,13 @@ func main() {
 		logger.Fatalf("Failed to initialize Telegram bot: %v", err)
 	}
 
+	// Set bot commands so the user sees them as menu options in the Telegram client
+	commands := []tgbotapi.BotCommand{
+		{Command: "start", Description: "Show the main menu"},
+		{Command: "help", Description: "Show help information"},
+	}
+	bot.Request(tgbotapi.NewSetMyCommands(commands...))
+
 	fmt.Printf("Authorized on account %s\n", bot.Self.UserName)
 
 	allowedUsersStr := os.Getenv("TELEGRAM_ALLOWED_USERS")
@@ -105,7 +121,6 @@ func main() {
 	}
 
 	fmt.Printf("Number of allowed users: %d\n", len(allowedUsers))
-
 	fmt.Println("ReleaseNoJutsu initialized successfully!")
 
 	// Set up the cron job for daily updates
@@ -137,6 +152,10 @@ func createTables(db *sql.DB) error {
 			published_at TIMESTAMP,
 			is_read BOOLEAN DEFAULT FALSE,
 			FOREIGN KEY (manga_id) REFERENCES manga (id)
+		);
+
+		CREATE TABLE IF NOT EXISTS users (
+			chat_id INTEGER PRIMARY KEY
 		);
 	`)
 	return err
@@ -174,7 +193,8 @@ func performDailyUpdate(db *sql.DB, bot *tgbotapi.BotAPI) {
 func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 	var mangadexID, title string
 	var lastChecked time.Time
-	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).Scan(&mangadexID, &title, &lastChecked)
+	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).
+		Scan(&mangadexID, &title, &lastChecked)
 	if err != nil {
 		logger.Printf("Error querying manga: %v\n", err)
 		return nil
@@ -240,14 +260,15 @@ func sendNewChaptersNotificationToAllUsers(bot *tgbotapi.BotAPI, db *sql.DB, man
 	err := db.QueryRow("SELECT unread_count FROM manga WHERE id = ?", mangaID).Scan(&unreadCount)
 	if err != nil {
 		logger.Printf("Error querying unread count: %v\n", err)
-		unreadCount = len(newChapters) // Fallback to new chapters count
+		unreadCount = len(newChapters)
 	}
 
-	message := fmt.Sprintf("📢 *New chapters for %s*\n\n", mangaTitle)
+	message := "📢 *New Chapter Alert!*\n\n"
+	message += fmt.Sprintf("*%s* has new chapters:\n", mangaTitle)
 	for _, chapter := range newChapters {
-		message += fmt.Sprintf("📖 Chapter %s: %s\n", chapter.Number, chapter.Title)
+		message += fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title)
 	}
-	message += fmt.Sprintf("\nYou have %d unread chapter(s) for this series.", unreadCount)
+	message += fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n\nUse /start to mark chapters as read or explore other options.", unreadCount)
 
 	rows, err := db.Query("SELECT chat_id FROM users")
 	if err != nil {
@@ -306,7 +327,7 @@ func checkAuthorization(userID int64) bool {
 }
 
 func sendUnauthorizedMessage(bot *tgbotapi.BotAPI, chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "You are not authorized to use this bot.")
+	msg := tgbotapi.NewMessage(chatID, "🚫 Sorry, you are not authorised to use this bot.")
 	bot.Send(msg)
 }
 
@@ -320,20 +341,14 @@ func handleMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, db *sql.DB) 
 		case "help":
 			sendHelpMessage(bot, message.Chat.ID)
 		default:
-			msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /start to see the main menu.")
-			_, err := bot.Send(msg)
-			if err != nil {
-				logger.Printf("Error sending unknown command message: %v\n", err)
-			}
+			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
+			bot.Send(msg)
 		}
 	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
 		handleReply(bot, message, db)
 	} else {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "I'm sorry, I didn't understand that. Please use the menu or commands.")
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending misunderstanding message: %v\n", err)
-		}
+		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
+		bot.Send(msg)
 	}
 }
 
@@ -342,17 +357,14 @@ func handleReply(bot *tgbotapi.BotAPI, message *tgbotapi.Message, db *sql.DB) {
 
 	replyTo := message.ReplyToMessage.Text
 	switch {
-	case strings.Contains(replyTo, "MangaDex ID"):
+	case strings.Contains(replyTo, "enter the MangaDex ID"):
 		result := addManga(db, message.Text)
 		msg := tgbotapi.NewMessage(message.Chat.ID, result)
 		msg.ParseMode = "Markdown"
 		sendMessageWithMainMenuButton(bot, msg)
 	default:
-		msg := tgbotapi.NewMessage(message.Chat.ID, "I'm sorry, I didn't understand that reply. Please use the menu or commands.")
-		_, err := bot.Send(msg)
-		if err != nil {
-			logger.Printf("Error sending default reply message: %v\n", err)
-		}
+		msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
+		bot.Send(msg)
 	}
 }
 
@@ -364,9 +376,9 @@ func handleCallbackQuery(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, db
 
 	switch action {
 	case "add_manga":
-		msg := tgbotapi.NewMessage(query.Message.Chat.ID, "📚 *Add a New Manga*\n\nPlease enter the MangaDex ID of the manga you want to add.\n\nYou can find the ID in the manga's URL on MangaDex. For example, in 'https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000', the ID is '123e4567-e89b-12d3-a456-426614174000'.")
+		msg := tgbotapi.NewMessage(query.Message.Chat.ID, "📚 *Add a New Manga*\n\nPlease enter the MangaDex ID (by using the reply function from Telegram) of the manga you want to track.\n\nFor example:\nIf the URL is `https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000`, then the ID is `123e4567-e89b-12d3-a456-426614174000`.\n\nReply with the ID below:")
 		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true}
+		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "MangaDex ID"}
 		sendMessageWithMainMenuButton(bot, msg)
 	case "list_manga":
 		result := listManga(db)
@@ -452,25 +464,22 @@ func sendMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		),
 	)
 
-	welcomeMessage := `*Welcome to ReleaseNoJutsu!* 🥷
+	welcomeMessage := `👋 *Welcome to ReleaseNoJutsu!*
+Your personal manga update assistant.
 
-Choose an action from the menu below:
+Use the menu below to:
+• Add a new manga to track
+• View followed manga
+• Check for new chapters
+• Mark chapters as read
+• Review read chapters
 
-• Add manga: Track a new manga series
-• List followed manga: See all your tracked manga
-• Check for new chapters: Find recent releases
-• Mark chapter as read: Update your reading progress
-• List read chapters: Review your reading history
-
-What would you like to do?`
+Or use /help for more info.`
 
 	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
-	_, err := bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending main menu: %v\n", err)
-	}
+	bot.Send(msg)
 }
 
 func sendMessageWithMainMenuButton(bot *tgbotapi.BotAPI, msg tgbotapi.MessageConfig) {
@@ -481,42 +490,37 @@ func sendMessageWithMainMenuButton(bot *tgbotapi.BotAPI, msg tgbotapi.MessageCon
 	)
 
 	if msg.ReplyMarkup != nil {
-		switch keyboard := msg.ReplyMarkup.(type) {
-		case tgbotapi.InlineKeyboardMarkup:
+		if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
 			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, mainMenuButton.InlineKeyboard...)
 			msg.ReplyMarkup = keyboard
-		default:
+		} else {
 			msg.ReplyMarkup = mainMenuButton
 		}
 	} else {
 		msg.ReplyMarkup = mainMenuButton
 	}
 
-	_, err := bot.Send(msg)
-	if err != nil {
-		logger.Printf("Error sending message with main menu button: %v\n", err)
-	}
+	bot.Send(msg)
 }
 
 func sendHelpMessage(bot *tgbotapi.BotAPI, chatID int64) {
 	logAction(chatID, "Sent help message", "")
 
-	helpText := `*ReleaseNoJutsu Help* 📚
+	helpText := `ℹ️ *Help Information*
+Welcome to ReleaseNoJutsu!
 
-Available commands:
-• /start - Show the main menu
+*Commands:*
+• /start - Return to the main menu
 • /help - Show this help message
 
-*Main Menu Options:*
-1. 📚 *Add manga*: Track a new manga series by providing its MangaDex ID.
-2. 📋 *List followed manga*: View all the manga series you're currently tracking.
-3. 🔍 *Check for new chapters*: See if there are any new releases for your tracked manga.
-4. ✅ *Mark chapter as read*: Update your reading progress for a specific manga.
-5. 📖 *List read chapters*: Review your reading history for a particular manga.
+*Main Features:*
+- *Add manga:* Start tracking a new manga by entering its MangaDex ID.
+- *List followed manga:* See which series you're currently tracking.
+- *Check for new chapters:* Quickly see if any of your followed manga have fresh releases.
+- *Mark chapter as read:* Update your progress so you know which chapters you've finished.
+- *List read chapters:* Review what you've read recently.
 
-To get started, use the /start command to access the main menu.
-
-If you need further assistance, feel free to ask!`
+If you need further assistance, feel free to /start and explore the menu options!`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ParseMode = "Markdown"
@@ -530,23 +534,29 @@ func addManga(db *sql.DB, mangaID string) string {
 	mangaResp, err := fetchJSON(mangaURL)
 	if err != nil {
 		logger.Printf("Error fetching manga data: %v\n", err)
-		return "❌ Error fetching manga data. Please try again."
+		return "❌ Could not retrieve manga data. Please check the ID and try again."
 	}
 
 	var mangaData MangaResponse
 	err = json.Unmarshal(mangaResp, &mangaData)
 	if err != nil {
 		logger.Printf("Error unmarshaling manga JSON: %v\n", err)
-		return "❌ Error processing manga data. Please try again."
+		return "❌ Could not process the manga data. Please try again."
 	}
 
 	var title string
-	if len(mangaData.Data.Attributes.Title["en"]) > 0 {
-		title = mangaData.Data.Attributes.Title["en"]
-	} else if len(mangaData.Data.Attributes.Title["ja"]) > 0 {
-		title = mangaData.Data.Attributes.Title["ja"]
+	if enTitle, ok := mangaData.Data.Attributes.Title["en"]; ok && enTitle != "" {
+		title = enTitle
 	} else {
-		title = "Title not available"
+		for _, val := range mangaData.Data.Attributes.Title {
+			if val != "" {
+				title = val
+				break
+			}
+		}
+		if title == "" {
+			title = "Title not available"
+		}
 	}
 
 	dbMutex.Lock()
@@ -555,7 +565,7 @@ func addManga(db *sql.DB, mangaID string) string {
 	dbMutex.Unlock()
 	if err != nil {
 		logger.Printf("Error inserting manga into database: %v\n", err)
-		return "❌ Error adding manga to database. Please try again."
+		return "❌ Error adding the manga to the database. It may already exist or the ID is invalid."
 	}
 
 	mangaDBID, _ := result.LastInsertId()
@@ -563,7 +573,7 @@ func addManga(db *sql.DB, mangaID string) string {
 
 	fetchLastChapters(db, mangaID, mangaDBID)
 
-	return fmt.Sprintf("✅ Successfully added manga:\n*%s*\n(ID: `%s`)\n\nThe last 3 chapters have been fetched and added to the database.", title, mangaID)
+	return fmt.Sprintf("✅ *%s* has been added successfully!\nThe last few chapters have also been fetched.\n\nUse /start to see what you can do next.", title)
 }
 
 func listManga(db *sql.DB) string {
@@ -572,7 +582,7 @@ func listManga(db *sql.DB) string {
 	rows, err := db.Query("SELECT id, mangadex_id, title FROM manga")
 	if err != nil {
 		logger.Printf("Error querying manga: %v\n", err)
-		return "❌ Error retrieving manga list. Please try again."
+		return "❌ Unable to retrieve your manga list. Please try again."
 	}
 	defer rows.Close()
 
@@ -592,15 +602,14 @@ func listManga(db *sql.DB) string {
 	}
 
 	if count == 0 {
-		mangaList.WriteString("You're not following any manga yet. Use the 'Add manga' option to start tracking!")
+		mangaList.WriteString("You’re not following any manga yet. Choose 'Add manga' to start tracking a series!")
 	} else {
-		mangaList.WriteString(fmt.Sprintf("Total: %d manga", count))
+		mangaList.WriteString(fmt.Sprintf("Total: %d manga\nUse /start to perform other actions.", count))
 	}
 
 	logAction(0, "List Manga", "Listed all followed manga")
 	return mangaList.String()
 }
-
 
 func markChapterAsRead(db *sql.DB, mangaID int, chapterNumber string) string {
 	logAction(0, "Mark chapter as read", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
@@ -609,7 +618,7 @@ func markChapterAsRead(db *sql.DB, mangaID int, chapterNumber string) string {
 	err := db.QueryRow("SELECT title FROM manga WHERE id = ?", mangaID).Scan(&title)
 	if err != nil {
 		logger.Printf("Error querying manga title: %v\n", err)
-		return "❌ Error retrieving manga information. Please try again."
+		return "❌ Could not find that manga. Please try again."
 	}
 
 	dbMutex.Lock()
@@ -635,11 +644,10 @@ func markChapterAsRead(db *sql.DB, mangaID int, chapterNumber string) string {
 
 	if err != nil {
 		logger.Printf("Error marking chapters as read: %v\n", err)
-		return "❌ Error marking chapter as read. Please try again."
+		return "❌ Could not update the chapter status. Please try again."
 	}
 
-	logAction(0, "Mark Chapter as Read", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
-	return fmt.Sprintf("✅ Success!\n\n*%s*\nChapter %s and all previous chapters have been marked as read.", title, chapterNumber)
+	return fmt.Sprintf("✅ Updated!\nAll chapters up to Chapter %s of *%s* have been marked as read.\nUse /start to continue.", chapterNumber, title)
 }
 
 func markChapterAsUnread(db *sql.DB, mangaID int, chapterNumber string) string {
@@ -649,7 +657,7 @@ func markChapterAsUnread(db *sql.DB, mangaID int, chapterNumber string) string {
 	err := db.QueryRow("SELECT title FROM manga WHERE id = ?", mangaID).Scan(&title)
 	if err != nil {
 		logger.Printf("Error querying manga title: %v\n", err)
-		return "❌ Error retrieving manga information. Please try again."
+		return "❌ Could not find that manga. Please try again."
 	}
 
 	dbMutex.Lock()
@@ -662,11 +670,10 @@ func markChapterAsUnread(db *sql.DB, mangaID int, chapterNumber string) string {
 
 	if err != nil {
 		logger.Printf("Error marking chapter as unread: %v\n", err)
-		return "❌ Error marking chapter as unread. Please try again."
+		return "❌ Could not update the chapter status. Please try again."
 	}
 
-	logAction(0, "Mark Chapter as Unread", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
-	return fmt.Sprintf("✅ Success!\n\n*%s*\nChapter %s has been marked as unread.", title, chapterNumber)
+	return fmt.Sprintf("✅ Chapter %s of *%s* is now marked as unread.\nUse /start to continue.", chapterNumber, title)
 }
 
 func sendMangaSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, nextAction string) {
@@ -686,21 +693,22 @@ func sendMangaSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, next
 			logger.Printf("Error scanning manga row: %v\n", err)
 			continue
 		}
+		callbackData := fmt.Sprintf("select_manga:%d:%s", id, nextAction)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(title, fmt.Sprintf("select_manga:%d:%s", id, nextAction)),
+			tgbotapi.NewInlineKeyboardButtonData(title, callbackData),
 		})
 	}
 
 	var messageText string
 	switch nextAction {
 	case "check_new":
-		messageText = "📚 *Select a manga to check for new chapters:*"
+		messageText = "🔍 *Check for New Chapters*\n\nSelect a manga to see if new chapters are available:"
 	case "mark_read":
-		messageText = "📚 *Select a manga to mark chapters as read:*"
+		messageText = "✅ *Mark Chapters as Read*\n\nSelect a manga to update your reading progress:"
 	case "list_read":
-		messageText = "📚 *Select a manga to view read chapters:*"
+		messageText = "📖 *List Read Chapters*\n\nSelect a manga to see the chapters you’ve marked as read:"
 	default:
-		messageText = "📚 *Select a manga:*"
+		messageText = "📚 *Select a Manga*\n\nChoose a manga to proceed."
 	}
 
 	msg := tgbotapi.NewMessage(chatID, messageText)
@@ -732,14 +740,15 @@ func sendChapterSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, ma
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for rows.Next() {
-		var chapterNumber, title string
-		err := rows.Scan(&chapterNumber, &title)
+		var chapterNumber, ctitle string
+		err := rows.Scan(&chapterNumber, &ctitle)
 		if err != nil {
 			logger.Printf("Error scanning chapter row: %v\n", err)
 			continue
 		}
+		callbackData := fmt.Sprintf("mark_chapter:%d:%s", mangaID, chapterNumber)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("Ch. %s: %s", chapterNumber, title), fmt.Sprintf("mark_chapter:%d:%s", mangaID, chapterNumber)),
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("Ch. %s: %s", chapterNumber, ctitle), callbackData),
 		})
 	}
 
@@ -750,7 +759,7 @@ func sendChapterSelectionMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, ma
 		mangaTitle = "Unknown Manga"
 	}
 
-	messageText := fmt.Sprintf("📖 *%s*\n\nSelect a chapter to mark as read:", mangaTitle)
+	messageText := fmt.Sprintf("📖 *%s*\n\nSelect a chapter below to mark it (and all previous ones) as read:", mangaTitle)
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
@@ -780,17 +789,15 @@ func sendReadChaptersMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaI
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for rows.Next() {
-		var chapterNumber, title string
-		err := rows.Scan(&chapterNumber, &title)
+		var chapterNumber, ctitle string
+		err := rows.Scan(&chapterNumber, &ctitle)
 		if err != nil {
 			logger.Printf("Error scanning chapter row: %v\n", err)
 			continue
 		}
+		callbackData := fmt.Sprintf("unread_chapter:%d:%s", mangaID, chapterNumber)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("Ch. %s: %s", chapterNumber, title),
-				fmt.Sprintf("unread_chapter:%d:%s", mangaID, chapterNumber),
-			),
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("Ch. %s: %s", chapterNumber, ctitle), callbackData),
 		})
 	}
 
@@ -801,7 +808,7 @@ func sendReadChaptersMenu(bot *tgbotapi.BotAPI, chatID int64, db *sql.DB, mangaI
 		mangaTitle = "Unknown Manga"
 	}
 
-	messageText := fmt.Sprintf("📚 *%s*\n\nSelect a chapter to mark as unread:", mangaTitle)
+	messageText := fmt.Sprintf("📚 *%s*\n\nBelow are some chapters you've read. Select one to mark as unread:", mangaTitle)
 	msg := tgbotapi.NewMessage(chatID, messageText)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
@@ -885,11 +892,6 @@ func logAction(userID int64, action, details string) {
 	logger.Printf("[User: %d] [%s] %s\n", userID, action, details)
 }
 
-type ChapterInfo struct {
-	Number string
-	Title  string
-}
-
 func formatNewChaptersMessage(db *sql.DB, mangaID int, newChapters []ChapterInfo) string {
 	var mangaTitle string
 	err := db.QueryRow("SELECT title FROM manga WHERE id = ?", mangaID).Scan(&mangaTitle)
@@ -899,18 +901,18 @@ func formatNewChaptersMessage(db *sql.DB, mangaID int, newChapters []ChapterInfo
 	}
 
 	var message strings.Builder
-	message.WriteString(fmt.Sprintf("🔍 New chapters for: *%s*\n\n", mangaTitle))
-
-	for _, chapter := range newChapters {
-		message.WriteString(fmt.Sprintf("📖 *Chapter %s*: %s\n", chapter.Number, chapter.Title))
-	}
+	message.WriteString("🔍 *Check for New Chapters*\n\n")
+	message.WriteString(fmt.Sprintf("Manga: *%s*\n\n", mangaTitle))
 
 	if len(newChapters) == 0 {
-		message.WriteString("No new chapters found.")
+		message.WriteString("No new chapters found.\nTry again later or use /start for more options.")
 	} else {
-		message.WriteString(fmt.Sprintf("\nTotal new chapters: %d", len(newChapters)))
+		message.WriteString("Newly released chapters:\n")
+		for _, chapter := range newChapters {
+			message.WriteString(fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title))
+		}
+		message.WriteString(fmt.Sprintf("\nTotal new chapters: %d\nUse /start to mark them as read or explore other options.", len(newChapters)))
 	}
 
 	return message.String()
 }
-
