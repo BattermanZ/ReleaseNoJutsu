@@ -1,5 +1,5 @@
 # Use Go base image with Debian Bullseye for both building and running
-FROM golang:1.23.4-bullseye
+FROM golang:1.23.4-bullseye AS builder
 
 # Install build dependencies required by CGO
 RUN apt-get update && apt-get install -y --no-install-recommends \

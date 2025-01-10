@@ -17,22 +17,26 @@
 # Go workspace file
 go.work
 
-# SQLite database file
-database/*.db
+# SQLite database files
+database/
+*.db
+*.db-shm
+*.db-wal
 
 # Log files
-logs/*.log
+logs/
+*.log
 
-# IDE-specific files
-.vscode/
+# IDE files
 .idea/
+.vscode/
 
-# macOS specific files
+# OS files
 .DS_Store
-
-# Windows specific files
 Thumbs.db
 
-# Environment variables file (if you decide to use one in the future)
+# Environment files
 .env
+.env.*
+!.env.example
 

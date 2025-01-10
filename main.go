@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joho/godotenv"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/robfig/cron/v3"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -100,12 +100,15 @@ func main() {
 	initLogger()
 
 	dbPath := filepath.Join("database", appName+".db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", dbPath+"?_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		logMsg(LogError, "Failed to open database: %v", err)
 		return
 	}
 	defer db.Close()
+
+	// Set maximum open connections to 1 to prevent database locks
+	db.SetMaxOpenConns(1)
 
 	err = createTables(db)
 	if err != nil {
@@ -142,11 +145,11 @@ func main() {
 
 	// Set up the cron job for updates every 6 hours
 	c := cron.New()
-	_, err = c.AddFunc("0 */6 * * *", func() { 
+	_, err = c.AddFunc("0 */6 * * *", func() {
 		performDailyUpdate(db, bot)
 		// Update system status
 		dbMutex.Lock()
-		_, err := db.Exec("INSERT OR REPLACE INTO system_status (key, last_update) VALUES ('cron_last_run', ?)", 
+		_, err := db.Exec("INSERT OR REPLACE INTO system_status (key, last_update) VALUES ('cron_last_run', ?)",
 			time.Now().UTC())
 		dbMutex.Unlock()
 		if err != nil {
@@ -225,7 +228,7 @@ func performDailyUpdate(db *sql.DB, bot *tgbotapi.BotAPI) {
 
 func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 	logger.Printf("[DEBUG] Checking new chapters for manga ID: %d\n", mangaID)
-	
+
 	var mangadexID, title string
 	var lastChecked time.Time
 	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).
@@ -241,7 +244,7 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 
 	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[chapter]=desc&translatedLanguage[]=en&limit=100", baseURL, mangadexID)
 	logger.Printf("[DEBUG] Fetching chapters from URL: %s\n", chapterURL)
-	
+
 	chapterResp, err := fetchJSON(chapterURL)
 	if err != nil {
 		logger.Printf("Error fetching chapter data for %s (ID: %s): %v\n", title, mangadexID, err)
@@ -279,18 +282,18 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 
 	var newChapters []ChapterInfo
 	currentTime := time.Now().UTC()
-	
+
 	for _, chapter := range chapterFeedResp.Data {
 		// Convert chapter publish time to UTC for consistent comparison
 		chapterTimeUTC := chapter.Attributes.PublishedAt.UTC()
-		logger.Printf("[DEBUG] Checking chapter %s published at %v (UTC) against last checked %v (UTC)\n", 
+		logger.Printf("[DEBUG] Checking chapter %s published at %v (UTC) against last checked %v (UTC)\n",
 			chapter.Attributes.Chapter, chapterTimeUTC, lastCheckedUTC)
-		
+
 		// Also check chapter number for numerical comparison
 		lastKnownChapter := "1133" // This is the last known chapter you mentioned
 		currentChapter, _ := strconv.ParseFloat(chapter.Attributes.Chapter, 64)
 		lastChapter, _ := strconv.ParseFloat(lastKnownChapter, 64)
-		
+
 		if chapterTimeUTC.After(lastCheckedUTC) || currentChapter > lastChapter {
 			logger.Printf("[DEBUG] Found new chapter: %s - %s\n", chapter.Attributes.Chapter, chapter.Attributes.Title)
 			newChapters = append(newChapters, ChapterInfo{
@@ -326,7 +329,7 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 			currentTime, mangaID)
 	}
 	dbMutex.Unlock()
-	
+
 	if err != nil {
 		logger.Printf("Error updating manga last_checked: %v\n", err)
 	}
