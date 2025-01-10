@@ -24,6 +24,10 @@ import (
 const (
 	baseURL = "https://api.mangadex.org"
 	appName = "ReleaseNoJutsu"
+
+	LogError   = "ERROR"
+	LogInfo    = "INFO"
+	LogWarning = "WARN"
 )
 
 var (
@@ -46,7 +50,7 @@ type ChapterFeedResponse struct {
 		Attributes struct {
 			Chapter     string    `json:"chapter"`
 			Title       string    `json:"title"`
-			PublishedAt time.Time `json:"publishedAt"`
+			PublishedAt time.Time `json:"publishAt"`
 		} `json:"attributes"`
 	} `json:"data"`
 }
@@ -56,17 +60,27 @@ type ChapterInfo struct {
 	Title  string
 }
 
+func logMsg(level string, format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	logger.Printf("[%s] %s", level, msg)
+}
+
 func initLogger() {
 	err := os.MkdirAll("logs", os.ModePerm)
 	if err != nil {
 		log.Fatalf("Failed to create logs folder: %v", err)
 	}
+
+	// Open log file
 	logFile, err := os.OpenFile(filepath.Join("logs", appName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
 	}
-	logger = log.New(logFile, "", log.Ldate|log.Ltime|log.Lshortfile)
-	logger.Println("Application started")
+
+	// Create multi writer for both stdout and file
+	multiWriter := io.MultiWriter(os.Stdout, logFile)
+	logger = log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile)
+	logMsg(LogInfo, "Application started")
 }
 
 func main() {
@@ -75,7 +89,7 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	folders := []string{"logs", "database"}
+	folders := []string{"database"}
 	for _, folder := range folders {
 		err := os.MkdirAll(folder, os.ModePerm)
 		if err != nil {
@@ -88,18 +102,21 @@ func main() {
 	dbPath := filepath.Join("database", appName+".db")
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		logger.Fatalf("Failed to open database: %v", err)
+		logMsg(LogError, "Failed to open database: %v", err)
+		return
 	}
 	defer db.Close()
 
 	err = createTables(db)
 	if err != nil {
-		logger.Fatalf("Failed to create tables: %v", err)
+		logMsg(LogError, "Failed to create tables: %v", err)
+		return
 	}
 
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if err != nil {
-		logger.Fatalf("Failed to initialize Telegram bot: %v", err)
+		logMsg(LogError, "Failed to initialize Telegram bot: %v", err)
+		return
 	}
 
 	// Set bot commands so the user sees them as menu options in the Telegram client
@@ -109,7 +126,7 @@ func main() {
 	}
 	bot.Request(tgbotapi.NewSetMyCommands(commands...))
 
-	fmt.Printf("Authorized on account %s\n", bot.Self.UserName)
+	logMsg(LogInfo, "Authorized on account %s", bot.Self.UserName)
 
 	allowedUsersStr := os.Getenv("TELEGRAM_ALLOWED_USERS")
 	allowedUserIDs := strings.Split(allowedUsersStr, ",")
@@ -120,14 +137,25 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Number of allowed users: %d\n", len(allowedUsers))
-	fmt.Println("ReleaseNoJutsu initialized successfully!")
+	logMsg(LogInfo, "Number of allowed users: %d", len(allowedUsers))
+	logMsg(LogInfo, "ReleaseNoJutsu initialized successfully!")
 
-	// Set up the cron job for daily updates
+	// Set up the cron job for updates every 6 hours
 	c := cron.New()
-	_, err = c.AddFunc("0 7 * * *", func() { performDailyUpdate(db, bot) })
+	_, err = c.AddFunc("0 */6 * * *", func() { 
+		performDailyUpdate(db, bot)
+		// Update system status
+		dbMutex.Lock()
+		_, err := db.Exec("INSERT OR REPLACE INTO system_status (key, last_update) VALUES ('cron_last_run', ?)", 
+			time.Now().UTC())
+		dbMutex.Unlock()
+		if err != nil {
+			logMsg(LogError, "Failed to update cron last run time: %v", err)
+		}
+	})
 	if err != nil {
-		logger.Fatalf("Failed to set up cron job: %v", err)
+		logMsg(LogError, "Failed to set up cron job: %v", err)
+		return
 	}
 	c.Start()
 
@@ -156,6 +184,11 @@ func createTables(db *sql.DB) error {
 
 		CREATE TABLE IF NOT EXISTS users (
 			chat_id INTEGER PRIMARY KEY
+		);
+
+		CREATE TABLE IF NOT EXISTS system_status (
+			key TEXT PRIMARY KEY,
+			last_update TIMESTAMP
 		);
 	`)
 	return err
@@ -191,6 +224,8 @@ func performDailyUpdate(db *sql.DB, bot *tgbotapi.BotAPI) {
 }
 
 func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
+	logger.Printf("[DEBUG] Checking new chapters for manga ID: %d\n", mangaID)
+	
 	var mangadexID, title string
 	var lastChecked time.Time
 	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).
@@ -200,17 +235,39 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 		return nil
 	}
 
+	// Convert lastChecked to UTC for consistent comparison
+	lastCheckedUTC := lastChecked.UTC()
+	logger.Printf("[DEBUG] Found manga: %s (ID: %s), last checked (UTC): %v\n", title, mangadexID, lastCheckedUTC)
+
 	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[chapter]=desc&translatedLanguage[]=en&limit=100", baseURL, mangadexID)
+	logger.Printf("[DEBUG] Fetching chapters from URL: %s\n", chapterURL)
+	
 	chapterResp, err := fetchJSON(chapterURL)
 	if err != nil {
-		logger.Printf("Error fetching chapter data for %s: %v\n", title, err)
+		logger.Printf("Error fetching chapter data for %s (ID: %s): %v\n", title, mangadexID, err)
+		// Don't update last_checked on API errors to retry later
 		return nil
 	}
 
 	var chapterFeedResp ChapterFeedResponse
 	err = json.Unmarshal(chapterResp, &chapterFeedResp)
 	if err != nil {
-		logger.Printf("Error unmarshaling chapter JSON for %s: %v\n", title, err)
+		logger.Printf("Error unmarshaling chapter JSON for %s: %v\nResponse: %s\n", title, err, string(chapterResp))
+		return nil
+	}
+
+	logger.Printf("[DEBUG] Found %d chapters in feed\n", len(chapterFeedResp.Data))
+
+	if len(chapterFeedResp.Data) == 0 {
+		logger.Printf("No chapters found for manga %s (ID: %s)\n", title, mangadexID)
+		// Still update last_checked as this is a valid empty response
+		dbMutex.Lock()
+		_, err = db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?",
+			time.Now().UTC(), mangaID)
+		dbMutex.Unlock()
+		if err != nil {
+			logger.Printf("Error updating last_checked: %v\n", err)
+		}
 		return nil
 	}
 
@@ -221,8 +278,21 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 	})
 
 	var newChapters []ChapterInfo
+	currentTime := time.Now().UTC()
+	
 	for _, chapter := range chapterFeedResp.Data {
-		if chapter.Attributes.PublishedAt.After(lastChecked) {
+		// Convert chapter publish time to UTC for consistent comparison
+		chapterTimeUTC := chapter.Attributes.PublishedAt.UTC()
+		logger.Printf("[DEBUG] Checking chapter %s published at %v (UTC) against last checked %v (UTC)\n", 
+			chapter.Attributes.Chapter, chapterTimeUTC, lastCheckedUTC)
+		
+		// Also check chapter number for numerical comparison
+		lastKnownChapter := "1133" // This is the last known chapter you mentioned
+		currentChapter, _ := strconv.ParseFloat(chapter.Attributes.Chapter, 64)
+		lastChapter, _ := strconv.ParseFloat(lastKnownChapter, 64)
+		
+		if chapterTimeUTC.After(lastCheckedUTC) || currentChapter > lastChapter {
+			logger.Printf("[DEBUG] Found new chapter: %s - %s\n", chapter.Attributes.Chapter, chapter.Attributes.Title)
 			newChapters = append(newChapters, ChapterInfo{
 				Number: chapter.Attributes.Chapter,
 				Title:  chapter.Attributes.Title,
@@ -232,24 +302,33 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 			_, err = db.Exec(`
 				INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at, is_read) 
 				VALUES (?, ?, ?, ?, false)
-			`, mangaID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
+			`, mangaID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapterTimeUTC)
 			dbMutex.Unlock()
 			if err != nil {
 				logger.Printf("Error inserting chapter into database: %v\n", err)
 			}
 		} else {
+			logger.Printf("[DEBUG] No more new chapters (found %d)\n", len(newChapters))
 			break
 		}
 	}
 
+	logger.Printf("[DEBUG] Total new chapters found: %d\n", len(newChapters))
+
+	// Always update the last_checked timestamp, even if no new chapters are found
+	// But only if we successfully processed the response
+	dbMutex.Lock()
 	if len(newChapters) > 0 {
-		dbMutex.Lock()
 		_, err = db.Exec("UPDATE manga SET last_checked = ?, unread_count = unread_count + ? WHERE id = ?",
-			time.Now(), len(newChapters), mangaID)
-		dbMutex.Unlock()
-		if err != nil {
-			logger.Printf("Error updating manga last_checked and unread_count: %v\n", err)
-		}
+			currentTime, len(newChapters), mangaID)
+	} else {
+		_, err = db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?",
+			currentTime, mangaID)
+	}
+	dbMutex.Unlock()
+	
+	if err != nil {
+		logger.Printf("Error updating manga last_checked: %v\n", err)
 	}
 
 	return newChapters
@@ -874,18 +953,73 @@ func fetchLastChapters(db *sql.DB, mangadexID string, mangaDBID int64) {
 }
 
 func fetchJSON(url string) ([]byte, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("error making request: %v", err)
-	}
-	defer resp.Body.Close()
+	maxRetries := 3
+	var lastErr error
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %v", err)
+	for i := 0; i < maxRetries; i++ {
+		if i > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			sleepDuration := time.Duration(1<<uint(i)) * time.Second
+			time.Sleep(sleepDuration)
+			logMsg(LogInfo, "Retry %d/%d for URL: %s", i+1, maxRetries, url)
+		}
+
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			lastErr = fmt.Errorf("error creating request: %v", err)
+			continue
+		}
+
+		req.Header.Set("User-Agent", fmt.Sprintf("%s/1.0", appName))
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("error making request: %v", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Check status code
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			lastErr = fmt.Errorf("API returned non-200 status code %d: %s", resp.StatusCode, string(body))
+			if resp.StatusCode == 429 { // Too Many Requests
+				logMsg(LogWarning, "Rate limit hit, waiting before retry")
+				continue
+			}
+			// For other error status codes, try again
+			continue
+		}
+
+		// Check rate limiting
+		if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
+			if rem, err := strconv.Atoi(remaining); err == nil && rem < 5 {
+				logMsg(LogWarning, "Rate limit remaining is low: %d", rem)
+			}
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("error reading response body: %v", err)
+			continue
+		}
+
+		// Verify we got valid JSON response
+		var js map[string]interface{}
+		if err := json.Unmarshal(body, &js); err != nil {
+			lastErr = fmt.Errorf("invalid JSON response: %v", err)
+			continue
+		}
+
+		return body, nil
 	}
 
-	return body, nil
+	return nil, fmt.Errorf("failed after %d retries. Last error: %v", maxRetries, lastErr)
 }
 
 func logAction(userID int64, action, details string) {

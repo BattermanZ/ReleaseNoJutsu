@@ -5,10 +5,10 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 ## Features ✨
 
 - **📖 Track Manga:** Add manga by providing its MangaDex ID.
-- **🔔 Notifications:** Receive daily updates about new chapters.
+- **🔔 Notifications:** Receive updates about new chapters every 6 hours.
 - **✅ Progress Management:** Mark chapters as read or unread.
 - **💾 Database Management:** Uses SQLite to store manga, chapters, and user data.
-- **⏰ Cron Jobs:** Automatically check for updates every day at 7 AM.
+- **⏰ Cron Jobs:** Automatically check for updates every 6 hours.
 
 ## Requirements 🛠️
 
@@ -21,6 +21,20 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
   TELEGRAM_BOT_TOKEN=<your_bot_token>
   TELEGRAM_ALLOWED_USERS=<comma_separated_chat_ids>
   ```
+
+## Setting up Telegram Bot 🤖
+
+1. **Create a Bot:**
+   - Open Telegram and search for [@BotFather](https://t.me/botfather)
+   - Send `/newbot` command
+   - Follow instructions to name your bot
+   - Save the API token provided by BotFather
+
+2. **Get Your Chat ID:**
+   - Search for [@userinfobot](https://t.me/userinfobot) on Telegram
+   - Send any message to the bot
+   - It will reply with your user info including your ID
+   - Save this ID for the `TELEGRAM_ALLOWED_USERS` environment variable
 
 ## Installation 🖥️
 
@@ -69,6 +83,15 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 
 ## Usage 🎮
 
+### Getting MangaDex ID 📚
+
+1. Go to [MangaDex](https://mangadex.org) and search for your manga
+2. Click on the manga title to open its page
+3. The ID is in the URL, for example:
+   - For URL: `https://mangadex.org/title/a1c7c817-4e59-43b7-9365-09675a149a6f/one-piece`
+   - The ID is: `a1c7c817-4e59-43b7-9365-09675a149a6f`
+4. Use this ID when adding a manga through the bot
+
 ### Telegram Commands 🗨️
 
 - **/start:** Show the main menu.
@@ -84,7 +107,7 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 
 ### Notifications 📤
 
-The bot sends updates about new chapters daily at 7 AM (via a cron job). You can view and manage these updates directly through Telegram.
+The bot sends updates about new chapters every 6 hours (via a cron job). You can view and manage these updates directly through Telegram.
 
 ## Code Overview 🧑‍💻
 
