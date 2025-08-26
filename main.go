@@ -289,12 +289,7 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 		logger.Printf("[DEBUG] Checking chapter %s published at %v (UTC) against last checked %v (UTC)\n",
 			chapter.Attributes.Chapter, chapterTimeUTC, lastCheckedUTC)
 
-		// Also check chapter number for numerical comparison
-		lastKnownChapter := "1133" // This is the last known chapter you mentioned
-		currentChapter, _ := strconv.ParseFloat(chapter.Attributes.Chapter, 64)
-		lastChapter, _ := strconv.ParseFloat(lastKnownChapter, 64)
-
-		if chapterTimeUTC.After(lastCheckedUTC) || currentChapter > lastChapter {
+		if chapterTimeUTC.After(lastCheckedUTC) {
 			logger.Printf("[DEBUG] Found new chapter: %s - %s\n", chapter.Attributes.Chapter, chapter.Attributes.Title)
 			newChapters = append(newChapters, ChapterInfo{
 				Number: chapter.Attributes.Chapter,
