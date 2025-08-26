@@ -259,15 +259,16 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 		return nil
 	}
 
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
 	logger.Printf("[DEBUG] Found %d chapters in feed\n", len(chapterFeedResp.Data))
 
 	if len(chapterFeedResp.Data) == 0 {
 		logger.Printf("No chapters found for manga %s (ID: %s)\n", title, mangadexID)
 		// Still update last_checked as this is a valid empty response
-		dbMutex.Lock()
 		_, err = db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?",
 			time.Now().UTC(), mangaID)
-		dbMutex.Unlock()
 		if err != nil {
 			logger.Printf("Error updating last_checked: %v\n", err)
 		}
@@ -275,8 +276,14 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 	}
 
 	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
-		chapterI, _ := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
-		chapterJ, _ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
+		chapterI, errI := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
+		if errI != nil {
+			logMsg(LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[i].Attributes.Chapter, errI)
+		}
+		chapterJ, errJ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
+		if errJ != nil {
+			logMsg(LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[j].Attributes.Chapter, errJ)
+		}
 		return chapterI > chapterJ
 	})
 
@@ -296,12 +303,10 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 				Title:  chapter.Attributes.Title,
 			})
 
-			dbMutex.Lock()
 			_, err = db.Exec(`
 				INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at, is_read) 
 				VALUES (?, ?, ?, ?, false)
 			`, mangaID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapterTimeUTC)
-			dbMutex.Unlock()
 			if err != nil {
 				logger.Printf("Error inserting chapter into database: %v\n", err)
 			}
@@ -315,7 +320,6 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 
 	// Always update the last_checked timestamp, even if no new chapters are found
 	// But only if we successfully processed the response
-	dbMutex.Lock()
 	if len(newChapters) > 0 {
 		_, err = db.Exec("UPDATE manga SET last_checked = ?, unread_count = unread_count + ? WHERE id = ?",
 			currentTime, len(newChapters), mangaID)
@@ -323,7 +327,6 @@ func checkNewChaptersForManga(db *sql.DB, mangaID int) []ChapterInfo {
 		_, err = db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?",
 			currentTime, mangaID)
 	}
-	dbMutex.Unlock()
 
 	if err != nil {
 		logger.Printf("Error updating manga last_checked: %v\n", err)
@@ -925,8 +928,14 @@ func fetchLastChapters(db *sql.DB, mangadexID string, mangaDBID int64) {
 	}
 
 	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
-		chapterI, _ := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
-		chapterJ, _ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
+		chapterI, errI := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
+		if errI != nil {
+			logMsg(LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[i].Attributes.Chapter, errI)
+		}
+		chapterJ, errJ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
+		if errJ != nil {
+			logMsg(LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[j].Attributes.Chapter, errJ)
+		}
 		return chapterI > chapterJ
 	})
 
@@ -935,13 +944,13 @@ func fetchLastChapters(db *sql.DB, mangadexID string, mangaDBID int64) {
 		chaptersToStore = chaptersToStore[:3]
 	}
 
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
 	for _, chapter := range chaptersToStore {
-		dbMutex.Lock()
 		_, err = db.Exec(`
 			INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at) 
 			VALUES (?, ?, ?, ?)
 		`, mangaDBID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
-		dbMutex.Unlock()
 		if err != nil {
 			logger.Printf("Error inserting chapter into database: %v\n", err)
 		}
