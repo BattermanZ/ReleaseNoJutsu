@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -19,6 +21,14 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
+	}
+
+	// Ensure database folder exists
+	dbDir := filepath.Dir(cfg.DatabasePath)
+	err = os.MkdirAll(dbDir, os.ModePerm)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Failed to create database folder: %v", err)
+		return
 	}
 
 	database, err := db.New(cfg.DatabasePath)
