@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"releasenojutsu/internal/logger"
@@ -124,4 +125,25 @@ func (c *Client) GetChapterFeed(mangaID string) (*ChapterFeedResponse, error) {
 		return nil, err
 	}
 	return &chapterFeedResp, nil
+}
+
+// ExtractMangaIDFromURL extracts the MangaDex ID from a given URL.
+func (c *Client) ExtractMangaIDFromURL(url string) (string, error) {
+	// Expected format: https://mangadex.org/title/{uuid}/...
+	parts := strings.Split(url, "/title/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid MangaDex URL format: %s", url)
+	}
+
+	idPart := parts[1]
+	// The ID might be followed by a slug or other path segments
+	id := strings.Split(idPart, "/")[0]
+
+	// Basic UUID validation (optional but good practice)
+	// A UUID is 36 characters long (32 hex digits + 4 hyphens)
+	if len(id) != 36 {
+		return "", fmt.Errorf("extracted ID does not look like a valid UUID: %s", id)
+	}
+
+	return id, nil
 }

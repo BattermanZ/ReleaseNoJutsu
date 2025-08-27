@@ -26,8 +26,14 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
 		b.handleReply(message)
 	} else {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
-		_, _ = b.api.Send(msg)
+		// Check if the message is a MangaDex URL
+		mangaID, err := b.mdClient.ExtractMangaIDFromURL(message.Text)
+		if err == nil {
+			b.handleAddManga(message.Chat.ID, mangaID)
+		} else {
+			msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
+			_, _ = b.api.Send(msg)
+		}
 	}
 }
 
