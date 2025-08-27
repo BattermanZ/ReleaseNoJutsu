@@ -163,7 +163,30 @@ func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 func (b *Bot) sendHelpMessage(chatID int64) {
 	b.logAction(chatID, "Sent help message", "")
 
-	helpText := `ℹ️ *Help Information*`
+	helpText := `ℹ️ *Help Information*
+Welcome to ReleaseNoJutsu!
+
+*How it works:*
+This bot helps you track your favorite manga series. It automatically checks for new chapters every 6 hours and notifies you when new releases are available. You can also manually check for updates, mark chapters as read, and view your reading progress.
+
+*Commands:*
+• /start - Return to the main menu
+• /help - Show this help message
+
+*Main Features:*
+- *Add manga:* Start tracking a new manga by entering its MangaDex ID.
+- *List followed manga:* See which series you're currently tracking.
+- *Check for new chapters:* Quickly see if any of your followed manga have fresh releases.
+- *Mark chapter as read:* Update your progress so you know which chapters you've finished.
+- *List read chapters:* Review what you've read recently.
+
+*How to add a manga:*
+1. Tap the "📚 Add manga" button in the main menu, or type /start and select it.
+2. The bot will ask you to reply with the MangaDex ID of the manga you want to track.
+3. To find the MangaDex ID, go to the manga's page on MangaDex (e.g., https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000). The ID is the part after "/title/" (e.g., "123e4567-e89b-12d3-a456-426614174000").
+4. Reply to the bot's message with the MangaDex ID. The bot will then add the manga and fetch its latest chapters.
+
+If you need further assistance, feel free to /start and explore the menu options!`
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ParseMode = "Markdown"
 	b.sendMessageWithMainMenuButton(msg)
