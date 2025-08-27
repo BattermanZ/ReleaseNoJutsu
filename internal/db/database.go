@@ -226,3 +226,37 @@ func (db *DB) UpdateCronLastRun() {
 		logger.LogMsg(logger.LogError, "Failed to update cron last run time: %v", err)
 	}
 }
+
+func (db *DB) DeleteManga(mangaID int) error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r) // re-throw panic
+		} else if err != nil {
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	// Delete associated chapters first
+	_, err = tx.Exec("DELETE FROM chapters WHERE manga_id = ?", mangaID)
+	if err != nil {
+		return err
+	}
+
+	// Delete the manga
+	_, err = tx.Exec("DELETE FROM manga WHERE id = ?", mangaID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

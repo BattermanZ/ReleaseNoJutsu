@@ -71,7 +71,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		b.sendMangaSelectionMenu(query.Message.Chat.ID, "mark_read")
 	case "list_read":
 		b.sendMangaSelectionMenu(query.Message.Chat.ID, "list_read")
-	case "select_manga":
+	case "select_manga": // This case is for manga selection menus (check_new, mark_read, list_read, remove_manga)
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for select_manga: %s", query.Data)
 			return
@@ -83,6 +83,18 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		}
 		nextAction := parts[2]
 		b.handleMangaSelection(query.Message.Chat.ID, mangaID, nextAction)
+	case "manga_action": // This case is for actions directly from the manga list
+		if len(parts) < 3 {
+			logger.LogMsg(logger.LogError, "Invalid callback data for manga_action: %s", query.Data)
+			return
+		}
+		mangaID, err := strconv.Atoi(parts[1])
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
+			return
+		}
+		action := parts[2]
+		b.handleMangaSelection(query.Message.Chat.ID, mangaID, action)
 	case "mark_chapter":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mark_chapter: %s", query.Data)
@@ -107,6 +119,8 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		}
 		chapterNumber := parts[2]
 		b.handleMarkChapterAsUnread(query.Message.Chat.ID, mangaID, chapterNumber)
+	case "remove_manga":
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, "remove_manga")
 	case "main_menu":
 		b.sendMainMenu(query.Message.Chat.ID)
 	}
@@ -135,6 +149,9 @@ func (b *Bot) sendMainMenu(chatID int64) {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📖 List read chapters", "list_read"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove manga", "remove_manga"),
 		),
 	)
 
@@ -169,7 +186,7 @@ func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 func (b *Bot) sendHelpMessage(chatID int64) {
 	b.logAction(chatID, "Sent help message", "")
 
-	helpText := `ℹ️ *Help Information*
+	helpText := `ℹ️ *Help Information* 
 Welcome to ReleaseNoJutsu!
 
 *How it works:*
@@ -240,8 +257,7 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 func (b *Bot) handleListManga(chatID int64) {
 	b.logAction(chatID, "List manga", "")
 
-
-rows, err := b.db.GetAllManga()
+	rows, err := b.db.GetAllManga()
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Unable to retrieve your manga list. Please try again.")
@@ -250,9 +266,11 @@ rows, err := b.db.GetAllManga()
 	}
 	defer func() { _ = rows.Close() }()
 
-	var mangaList strings.Builder
-	mangaList.WriteString(`📚 *Your Followed Manga:*`)
-	mangaList.WriteString("\n\n")
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	var messageBuilder strings.Builder
+	messageBuilder.WriteString(`📚 *Your Followed Manga:*
+
+`) // Changed to backticks
 	count := 0
 	for rows.Next() {
 		var id int
@@ -264,17 +282,29 @@ rows, err := b.db.GetAllManga()
 			continue
 		}
 		count++
-		mangaList.WriteString(fmt.Sprintf("%d. *%s*\n   ID: `%s`\n\n", count, title, mangadexID))
+
+		// Manga title row
+		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d. %s", count, title), "ignore"), // "ignore" as a placeholder, no action on title click
+		))
+
+		// Action buttons row
+		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Check New", fmt.Sprintf("manga_action:%d:check_new", id)),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Mark Read", fmt.Sprintf("manga_action:%d:mark_read", id)),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", fmt.Sprintf("manga_action:%d:remove_manga", id)),
+		))
 	}
 
 	if count == 0 {
-		mangaList.WriteString("You’re not following any manga yet. Choose 'Add manga' to start tracking a series!")
+		messageBuilder.WriteString("You’re not following any manga yet. Choose 'Add manga' to start tracking a series!")
 	} else {
-		mangaList.WriteString(fmt.Sprintf("Total: %d manga", count))
+		messageBuilder.WriteString(fmt.Sprintf("Total: %d manga", count))
 	}
 
-	msg := tgbotapi.NewMessage(chatID, mangaList.String())
+	msg := tgbotapi.NewMessage(chatID, messageBuilder.String())
 	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
 
@@ -315,8 +345,7 @@ func (b *Bot) handleMarkChapterAsUnread(chatID int64, mangaID int, chapterNumber
 }
 
 func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
-
-rows, err := b.db.GetAllManga()
+	rows, err := b.db.GetAllManga()
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		return
@@ -353,6 +382,8 @@ Select a manga to update your reading progress:`
 		messageText = `📖 *List Read Chapters*
 
 Select a manga to see the chapters you’ve marked as read:`
+	case "remove_manga":
+		messageText = "🗑️ *Remove Manga*\n\nSelect a manga to stop tracking:"
 	default:
 		messageText = `📚 *Select a Manga*
 
@@ -366,8 +397,7 @@ Choose a manga to proceed.`
 }
 
 func (b *Bot) sendChapterSelectionMenu(chatID int64, mangaID int) {
-
-rows, err := b.db.GetUnreadChapters(mangaID)
+	rows, err := b.db.GetUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying chapters: %v", err)
 		return
@@ -399,8 +429,7 @@ Select a chapter below to mark it (and all previous ones) as read:`, mangaTitle)
 }
 
 func (b *Bot) sendReadChaptersMenu(chatID int64, mangaID int) {
-
-rows, err := b.db.GetReadChapters(mangaID)
+	rows, err := b.db.GetReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying chapters: %v", err)
 		return
@@ -441,6 +470,8 @@ func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string)
 		b.sendChapterSelectionMenu(chatID, mangaID)
 	case "list_read":
 		b.sendReadChaptersMenu(chatID, mangaID)
+	case "remove_manga":
+		b.handleRemoveManga(chatID, mangaID)
 	default:
 		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
 	}
@@ -466,6 +497,33 @@ func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
 	}
 }
 
+
+
 func (b *Bot) logAction(userID int64, action, details string) {
 	logger.LogMsg(logger.LogInfo, "[User: %d] [%s] %s", userID, action, details)
+}
+
+func (b *Bot) handleRemoveManga(chatID int64, mangaID int) {
+	b.logAction(chatID, "Remove manga", fmt.Sprintf("Manga ID: %d", mangaID))
+
+	mangaTitle, err := b.db.GetMangaTitle(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga details for removal. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	err = b.db.DeleteManga(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error deleting manga: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Error removing the manga from the database. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	result := fmt.Sprintf("✅ *%s* has been successfully removed.", mangaTitle)
+	msg := tgbotapi.NewMessage(chatID, result)
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
 }
