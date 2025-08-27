@@ -1,0 +1,445 @@
+package bot
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"releasenojutsu/internal/logger"
+)
+
+func (b *Bot) handleMessage(message *tgbotapi.Message) {
+	b.logAction(message.From.ID, "Received message", message.Text)
+
+	if message.IsCommand() {
+		switch message.Command() {
+		case "start":
+			b.sendMainMenu(message.Chat.ID)
+		case "help":
+			b.sendHelpMessage(message.Chat.ID)
+		default:
+			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
+			_, _ = b.api.Send(msg)
+		}
+	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
+		b.handleReply(message)
+	} else {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
+		_, _ = b.api.Send(msg)
+	}
+}
+
+func (b *Bot) handleReply(message *tgbotapi.Message) {
+	b.logAction(message.From.ID, "Received reply", message.Text)
+
+	replyTo := message.ReplyToMessage.Text
+	switch {
+	case strings.Contains(replyTo, "enter the MangaDex ID"):
+		b.handleAddManga(message.Chat.ID, message.Text)
+	default:
+		msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
+		_, _ = b.api.Send(msg)
+	}
+}
+
+func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
+	b.logAction(query.From.ID, "Received callback query", query.Data)
+
+	parts := strings.Split(query.Data, ":")
+	action := parts[0]
+
+	switch action {
+	case "add_manga":
+		msg := tgbotapi.NewMessage(query.Message.Chat.ID, `📚 *Add a New Manga*
+Please enter the MangaDex ID of the manga you want to track.`)
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "MangaDex ID"}
+		b.sendMessageWithMainMenuButton(msg)
+	case "list_manga":
+		b.handleListManga(query.Message.Chat.ID)
+	case "check_new":
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, "check_new")
+	case "mark_read":
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, "mark_read")
+	case "list_read":
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, "list_read")
+	case "select_manga":
+		if len(parts) < 3 {
+			logger.LogMsg(logger.LogError, "Invalid callback data for select_manga: %s", query.Data)
+			return
+		}
+		mangaID, err := strconv.Atoi(parts[1])
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
+			return
+		}
+		nextAction := parts[2]
+		b.handleMangaSelection(query.Message.Chat.ID, mangaID, nextAction)
+	case "mark_chapter":
+		if len(parts) < 3 {
+			logger.LogMsg(logger.LogError, "Invalid callback data for mark_chapter: %s", query.Data)
+			return
+		}
+		mangaID, err := strconv.Atoi(parts[1])
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
+			return
+		}
+		chapterNumber := parts[2]
+		b.handleMarkChapterAsRead(query.Message.Chat.ID, mangaID, chapterNumber)
+	case "unread_chapter":
+		if len(parts) < 3 {
+			logger.LogMsg(logger.LogError, "Invalid callback data for unread_chapter: %s", query.Data)
+			return
+		}
+		mangaID, err := strconv.Atoi(parts[1])
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
+			return
+		}
+		chapterNumber := parts[2]
+		b.handleMarkChapterAsUnread(query.Message.Chat.ID, mangaID, chapterNumber)
+	case "main_menu":
+		b.sendMainMenu(query.Message.Chat.ID)
+	}
+
+	callback := tgbotapi.NewCallback(query.ID, "")
+	if _, err := b.api.Request(callback); err != nil {
+		logger.LogMsg(logger.LogError, "Error answering callback query: %v", err)
+	}
+}
+
+func (b *Bot) sendMainMenu(chatID int64) {
+	b.logAction(chatID, "Sent main menu", "")
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📚 Add manga", "add_manga"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 List followed manga", "list_manga"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Check for new chapters", "check_new"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Mark chapter as read", "mark_read"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📖 List read chapters", "list_read"),
+		),
+	)
+
+	welcomeMessage := `👋 *Welcome to ReleaseNoJutsu!*`
+	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	_, _ = b.api.Send(msg)
+}
+
+func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
+	mainMenuButton := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "main_menu"),
+		),
+	)
+
+	if msg.ReplyMarkup != nil {
+		if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
+			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, mainMenuButton.InlineKeyboard...)
+			msg.ReplyMarkup = keyboard
+		} else {
+			msg.ReplyMarkup = mainMenuButton
+		}
+	} else {
+		msg.ReplyMarkup = mainMenuButton
+	}
+
+	_, _ = b.api.Send(msg)
+}
+
+func (b *Bot) sendHelpMessage(chatID int64) {
+	b.logAction(chatID, "Sent help message", "")
+
+	helpText := `ℹ️ *Help Information*`
+	msg := tgbotapi.NewMessage(chatID, helpText)
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleAddManga(chatID int64, mangaID string) {
+	b.logAction(chatID, "Add manga", mangaID)
+
+	mangaData, err := b.mdClient.GetManga(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga data. Please check the ID and try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	var title string
+	if enTitle, ok := mangaData.Data.Attributes.Title["en"]; ok && enTitle != "" {
+		title = enTitle
+	} else {
+		for _, val := range mangaData.Data.Attributes.Title {
+			if val != "" {
+				title = val
+				break
+			}
+		}
+		if title == "" {
+			title = "Title not available"
+		}
+	}
+
+	mangaDBID, err := b.db.AddManga(mangaID, title)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error inserting manga into database: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Error adding the manga to the database. It may already exist or the ID is invalid.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	b.fetchLastChapters(mangaDBID, mangaID)
+
+	result := fmt.Sprintf("✅ *%s* has been added successfully!", title)
+	msg := tgbotapi.NewMessage(chatID, result)
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleListManga(chatID int64) {
+	b.logAction(chatID, "List manga", "")
+
+
+rows, err := b.db.GetAllManga()
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Unable to retrieve your manga list. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	var mangaList strings.Builder
+	mangaList.WriteString(`📚 *Your Followed Manga:*`)
+	mangaList.WriteString("\n\n")
+	count := 0
+	for rows.Next() {
+		var id int
+		var mangadexID, title string
+		var lastChecked string
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
+			continue
+		}
+		count++
+		mangaList.WriteString(fmt.Sprintf("%d. *%s*\n   ID: `%s`\n\n", count, title, mangadexID))
+	}
+
+	if count == 0 {
+		mangaList.WriteString("You’re not following any manga yet. Choose 'Add manga' to start tracking a series!")
+	} else {
+		mangaList.WriteString(fmt.Sprintf("Total: %d manga", count))
+	}
+
+	msg := tgbotapi.NewMessage(chatID, mangaList.String())
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleMarkChapterAsRead(chatID int64, mangaID int, chapterNumber string) {
+	b.logAction(chatID, "Mark chapter as read", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
+
+	err := b.db.MarkChapterAsRead(mangaID, chapterNumber)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error marking chapters as read: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not update the chapter status. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	result := fmt.Sprintf("✅ Updated!\nAll chapters up to Chapter %s of *%s* have been marked as read.", chapterNumber, mangaTitle)
+	msg := tgbotapi.NewMessage(chatID, result)
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleMarkChapterAsUnread(chatID int64, mangaID int, chapterNumber string) {
+	b.logAction(chatID, "Mark chapter as unread", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
+
+	err := b.db.MarkChapterAsUnread(mangaID, chapterNumber)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error marking chapter as unread: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not update the chapter status. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	result := fmt.Sprintf("✅ Chapter %s of *%s* is now marked as unread.", chapterNumber, mangaTitle)
+	msg := tgbotapi.NewMessage(chatID, result)
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
+
+rows, err := b.db.GetAllManga()
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	for rows.Next() {
+		var id int
+		var mangadexID, title string
+		var lastChecked string
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
+			continue
+		}
+		callbackData := fmt.Sprintf("select_manga:%d:%s", id, nextAction)
+		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(title, callbackData),
+		})
+	}
+
+	var messageText string
+	switch nextAction {
+	case "check_new":
+		messageText = `🔍 *Check for New Chapters*
+
+Select a manga to see if new chapters are available:`
+	case "mark_read":
+		messageText = `✅ *Mark Chapters as Read*
+
+Select a manga to update your reading progress:`
+	case "list_read":
+		messageText = `📖 *List Read Chapters*
+
+Select a manga to see the chapters you’ve marked as read:`
+	default:
+		messageText = `📚 *Select a Manga*
+
+Choose a manga to proceed.`
+	}
+
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendChapterSelectionMenu(chatID int64, mangaID int) {
+
+rows, err := b.db.GetUnreadChapters(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error querying chapters: %v", err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	for rows.Next() {
+		var chapterNumber, ctitle string
+		err := rows.Scan(&chapterNumber, &ctitle)
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error scanning chapter row: %v", err)
+			continue
+		}
+		callbackData := fmt.Sprintf("mark_chapter:%d:%s", mangaID, chapterNumber)
+		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("Ch. %s: %s", chapterNumber, ctitle), callbackData),
+		})
+	}
+
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	messageText := fmt.Sprintf(`📖 *%s*
+
+Select a chapter below to mark it (and all previous ones) as read:`, mangaTitle)
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendReadChaptersMenu(chatID int64, mangaID int) {
+
+rows, err := b.db.GetReadChapters(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error querying chapters: %v", err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	for rows.Next() {
+		var chapterNumber, ctitle string
+		err := rows.Scan(&chapterNumber, &ctitle)
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error scanning chapter row: %v", err)
+			continue
+		}
+		callbackData := fmt.Sprintf("unread_chapter:%d:%s", mangaID, chapterNumber)
+		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("Ch. %s: %s", chapterNumber, ctitle), callbackData),
+		})
+	}
+
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	messageText := fmt.Sprintf(`📚 *%s*
+
+Below are some chapters you've read. Select one to mark as unread:`, mangaTitle)
+	msg := tgbotapi.NewMessage(chatID, messageText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string) {
+	switch nextAction {
+	case "check_new":
+		// This is now handled by the cron job, we can provide a message to the user
+		msg := tgbotapi.NewMessage(chatID, "The bot automatically checks for new chapters every 6 hours.")
+		b.sendMessageWithMainMenuButton(msg)
+	case "mark_read":
+		b.sendChapterSelectionMenu(chatID, mangaID)
+	case "list_read":
+		b.sendReadChaptersMenu(chatID, mangaID)
+	default:
+		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
+	}
+}
+
+func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
+	chapterFeed, err := b.mdClient.GetChapterFeed(mangadexID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error fetching chapter data: %v", err)
+		return
+	}
+
+	chaptersToStore := chapterFeed.Data
+	if len(chaptersToStore) > 3 {
+		chaptersToStore = chaptersToStore[:3]
+	}
+
+	for _, chapter := range chaptersToStore {
+		err := b.db.AddChapter(mangaDBID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error inserting chapter into database: %v", err)
+		}
+	}
+}
+
+func (b *Bot) logAction(userID int64, action, details string) {
+	logger.LogMsg(logger.LogInfo, "[User: %d] [%s] %s", userID, action, details)
+}
