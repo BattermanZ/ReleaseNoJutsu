@@ -19,8 +19,10 @@ type Config struct {
 // Load loads the configuration from environment variables
 
 func Load() (*Config, error) {
+	// Attempt to load .env file. This is primarily for local development.
+	// In Docker, environment variables are expected to be set directly.
 	err := godotenv.Load()
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) { // Only return error if it's not a "file not found" error
 		return nil, err
 	}
 
