@@ -22,7 +22,7 @@ COPY . .
 # -s: omit symbol table and debug info
 # -w: omit DWARF symbol table
 # -extldflags "-static": statically link C libraries (important for Alpine/scratch)
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w -extldflags \"-static\"" -o releasenojutsu .
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w -extldflags \"-static\"" -o releasenojutsu ./cmd/releasenojutsu
 
 # Final stage: Use a minimal Alpine image
 FROM alpine:3.22
