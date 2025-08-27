@@ -5,6 +5,7 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 ## Features ✨
 
 - **📖 Track Manga:** Add manga by providing its MangaDex ID.
+- **🗑️ Remove Manga:** Stop tracking a manga you no longer wish to follow.
 - **🔔 Notifications:** Receive updates about new chapters every 6 hours.
 - **✅ Progress Management:** Mark chapters as read or unread.
 - **💾 Database Management:** Uses SQLite to store manga, chapters, and user data.
@@ -12,7 +13,7 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 
 ## Requirements 🛠️
 
-- Go 1.18 or newer
+- Go 1.23.5 or newer
 - SQLite3
 - Docker (optional)
 - A Telegram bot token
@@ -45,19 +46,16 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
    cd <repository-folder>
    ```
 
-2. **Using Docker:**
+2. **Using Docker Compose:**
 
-   - Build the Docker image:
+   - Ensure you have a `docker-compose.yml` file in your project root (one was generated for you).
+   - Build and run the Docker containers:
      ```bash
-     docker build -t releasenojutsu .
+     docker-compose up -d --build
      ```
-   - Run the Docker container:
+   - To stop the containers:
      ```bash
-     docker run -d --name releasenojutsu \
-       -v $(pwd)/logs:/app/logs \
-       -v $(pwd)/database:/app/database \
-       --env-file .env \
-       releasenojutsu
+     docker-compose down
      ```
 
 3. **Install Dependencies (Manual Installation):**
@@ -104,6 +102,7 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 - **🔍 Check for New Chapters:** Check for updates and see newly released chapters.
 - **✅ Mark Chapters as Read:** Update your progress by marking chapters as read.
 - **📖 List Read Chapters:** Review chapters you've marked as read.
+- **🗑️ Remove Manga:** Stop tracking a manga you no longer wish to follow.
 
 ### Notifications 📤
 
