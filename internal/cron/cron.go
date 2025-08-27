@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -139,15 +139,22 @@ func (s *Scheduler) sendNewChaptersNotificationToAllUsers(mangaID int, mangaTitl
 		unreadCount = len(newChapters)
 	}
 
-	message := "📢 *New Chapter Alert!*\n\n"
-	message += fmt.Sprintf("*%s* has new chapters:\n", mangaTitle)
+	var messageBuilder strings.Builder
+	messageBuilder.WriteString("📢 *New Chapter Alert!*\n\n")
+	messageBuilder.WriteString(fmt.Sprintf("*%s* has new chapters:\n", mangaTitle))
 	for _, chapter := range newChapters {
-		message += fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title)
+		messageBuilder.WriteString(fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title))
 	}
-	message += fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n\nUse /start to mark chapters as read or explore other options.", unreadCount)
+	messageBuilder.WriteString(fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n", unreadCount))
 
+	if unreadCount >= 3 {
+		messageBuilder.WriteString("\n⚠️ *Warning: You have 3 or more unread chapters for this manga!*")
+	}
 
-rows, err := s.DB.GetAllUsers()
+	messageBuilder.WriteString("\nUse /start to mark chapters as read or explore other options.")
+	message := messageBuilder.String()
+
+	rows, err := s.DB.GetAllUsers()
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying user chat IDs: %v", err)
 		return
@@ -164,7 +171,7 @@ rows, err := s.DB.GetAllUsers()
 
 		msg := tgbotapi.NewMessage(chatID, message)
 		msg.ParseMode = "Markdown"
-		_, err = s.Bot.Send(msg)
+		_, _ = s.Bot.Send(msg)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, err)
 		}
