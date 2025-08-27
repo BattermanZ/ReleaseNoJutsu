@@ -202,6 +202,7 @@ This bot helps you track your favorite manga series. It automatically checks for
 - *Check for new chapters:* Quickly see if any of your followed manga have fresh releases.
 - *Mark chapter as read:* Update your progress so you know which chapters you've finished.
 - *List read chapters:* Review what you've read recently.
+- *Remove manga:* Stop tracking a manga you no longer wish to follow.
 
 *How to add a manga:*
 Simply send the MangaDex URL (e.g., https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000) or the MangaDex ID (e.g., 123e4567-e89b-12d3-a456-426614174000) directly to the bot. The bot will automatically detect and add the manga.
