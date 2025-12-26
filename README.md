@@ -118,6 +118,8 @@ The bot sends updates about new chapters every 6 hours (via a cron job). You can
   - Cron job for daily updates.
   - Functions for managing manga, chapters, and user interactions.
 
+For a deeper architectural/workflow walkthrough (with diagrams), see `docs/workflow.md`.
+
 ## Logs 🗂️
 
 All logs are stored in the `logs` directory with the filename `ReleaseNoJutsu.log`. The logs include details of application startup, database operations, user interactions, and errors.
