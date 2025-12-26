@@ -38,5 +38,9 @@ func InitLogger() {
 
 func LogMsg(level string, format string, v ...interface{}) {
 	msg := fmt.Sprintf(format, v...)
+	if logger == nil {
+		log.Printf("[%s] %s", level, msg)
+		return
+	}
 	logger.Printf("[%s] %s", level, msg)
 }
