@@ -1,9 +1,9 @@
-# Use Go base image with Debian Bullseye for building
-FROM golang:1.25.5-bullseye AS builder
+# Use Go base image for building (Debian-based).
+FROM golang:1.25.5 AS builder
 
 # Install build dependencies required by CGO
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc libc-dev && \
+    ca-certificates build-essential gcc libc-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -18,26 +18,23 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application with CGO_ENABLED=1 and static linking flags for a smaller final image
-# -s: omit symbol table and debug info
-# -w: omit DWARF symbol table
-# -extldflags "-static": statically link C libraries (important for Alpine/scratch)
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w -extldflags \"-static\"" -o releasenojutsu ./cmd/releasenojutsu
+# Build the application (CGO is required for github.com/mattn/go-sqlite3).
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o releasenojutsu ./cmd/releasenojutsu
 
-# Final stage: Use a minimal Alpine image
-FROM alpine:3.22
+# Prepare runtime directories (distroless has no shell/tools).
+RUN mkdir -p /out/logs /out/database && cp /build/releasenojutsu /out/releasenojutsu
 
-# Install only runtime dependencies (for sqlite3 and tzdata)
-RUN apk add --no-cache ca-certificates sqlite-libs tzdata
+# Final stage: Distroless with glibc support for CGO binaries.
+FROM gcr.io/distroless/cc-debian13:nonroot
 
 # Set working directory
 WORKDIR /app
 
-# Create necessary directories
-RUN mkdir -p /app/logs /app/database
+# Copy CA certs for outbound HTTPS (MangaDex API).
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-# Copy the binary from builder
-COPY --from=builder /build/releasenojutsu .
+# Copy binary + writable directories
+COPY --chown=65532:65532 --from=builder /out/ /app/
 
 # Command to run the application
 CMD ["./releasenojutsu"]

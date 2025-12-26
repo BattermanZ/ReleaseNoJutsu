@@ -11,13 +11,17 @@ logs/
 database/
 
 # Ignore environment files
-# .env
+.env
+.env.*
+!.env.example
 
 # Ignore any build artifacts or temporary files
 *.exe
 *.test
 *.out
 *.tmp
+releasenojutsu
+bin/
 
 # Ignore development and IDE-specific files
 *.swp
@@ -27,6 +31,7 @@ database/
 # Ignore documentation files
 *.md
 LICENSE
+docs/
 
 # Ignore test files
 *_test.go
@@ -34,3 +39,4 @@ LICENSE
 # Ignore any other unnecessary files or directories
 node_modules/
 vendor/
+database.old/
