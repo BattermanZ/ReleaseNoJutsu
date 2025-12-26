@@ -1,16 +1,32 @@
 package cron
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"releasenojutsu/internal/db"
 	"releasenojutsu/internal/mangadex"
+	"releasenojutsu/internal/updater"
 )
+
+type recordingNotifier struct {
+	sent map[int64][]string
+}
+
+func (n *recordingNotifier) SendHTML(chatID int64, text string) error {
+	if n.sent == nil {
+		n.sent = map[int64][]string{}
+	}
+	n.sent[chatID] = append(n.sent[chatID], text)
+	return nil
+}
 
 func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -23,19 +39,16 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
 
 	if _, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super"); err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := mangadex.ChapterFeedResponse{Data: []struct {
-			Attributes struct {
-				Chapter     string    `json:"chapter"`
-				Title       string    `json:"title"`
-				PublishedAt time.Time `json:"publishAt"`
-			} `json:"attributes"`
-		}{}}
+		resp := mangadex.ChapterFeedResponse{Data: []mangadex.Chapter{}}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -44,11 +57,12 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	client := mangadex.NewClient()
 	client.BaseURL = srv.URL
 
-	s := NewScheduler(database, nil, client)
+	upd := updater.New(database, client)
+	s := NewScheduler(database, &recordingNotifier{}, upd)
 
 	done := make(chan struct{}, 1)
 	go func() {
-		s.performUpdate()
+		s.performUpdate(context.Background())
 		done <- struct{}{}
 	}()
 
@@ -60,7 +74,7 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	}
 }
 
-func TestCheckNewChaptersForManga_AddsNewChaptersAndUpdatesLastChecked(t *testing.T) {
+func TestPerformUpdate_SendsNotificationsToRegisteredChats(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := db.New(dbPath)
 	if err != nil {
@@ -71,6 +85,14 @@ func TestCheckNewChaptersForManga_AddsNewChaptersAndUpdatesLastChecked(t *testin
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
+
+	chatID := int64(42)
+	if err := database.EnsureUser(chatID); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
 
 	mangaDexID := "37b87be0-b1f4-4507-affa-06c99ebb27f8"
 	mangaTitle := "Dragon Ball Super"
@@ -79,33 +101,16 @@ func TestCheckNewChaptersForManga_AddsNewChaptersAndUpdatesLastChecked(t *testin
 		t.Fatalf("AddManga(): %v", err)
 	}
 
-	lastChecked := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := database.Exec("UPDATE manga SET last_checked = ? WHERE id = ?", lastChecked, mangaDBID); err != nil {
-		t.Fatalf("seed last_checked: %v", err)
+	lastSeenAt := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := database.UpdateMangaLastSeenAt(int(mangaDBID), lastSeenAt); err != nil {
+		t.Fatalf("UpdateMangaLastSeenAt(): %v", err)
 	}
 
-	ch1Time := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	ch2Time := time.Date(2025, 2, 2, 0, 0, 0, 0, time.UTC)
-
+	chTime := time.Date(2025, 2, 2, 0, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := mangadex.ChapterFeedResponse{
-			Data: []struct {
-				Attributes struct {
-					Chapter     string    `json:"chapter"`
-					Title       string    `json:"title"`
-					PublishedAt time.Time `json:"publishAt"`
-				} `json:"attributes"`
-			}{
-				{Attributes: struct {
-					Chapter     string    `json:"chapter"`
-					Title       string    `json:"title"`
-					PublishedAt time.Time `json:"publishAt"`
-				}{Chapter: "2", Title: "Two", PublishedAt: ch2Time}},
-				{Attributes: struct {
-					Chapter     string    `json:"chapter"`
-					Title       string    `json:"title"`
-					PublishedAt time.Time `json:"publishAt"`
-				}{Chapter: "1", Title: "One", PublishedAt: ch1Time}},
+			Data: []mangadex.Chapter{
+				{Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "One", PublishedAt: chTime, ReadableAt: chTime, CreatedAt: chTime, UpdatedAt: chTime}},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -116,34 +121,19 @@ func TestCheckNewChaptersForManga_AddsNewChaptersAndUpdatesLastChecked(t *testin
 	client := mangadex.NewClient()
 	client.BaseURL = srv.URL
 
-	s := NewScheduler(database, nil, client)
-	newChapters := s.checkNewChaptersForManga(int(mangaDBID), mangaDexID, mangaTitle, lastChecked)
+	n := &recordingNotifier{}
+	upd := updater.New(database, client)
+	s := NewScheduler(database, n, upd)
 
-	if len(newChapters) != 2 {
-		t.Fatalf("newChapters len=%d, want 2", len(newChapters))
-	}
+	s.performUpdate(context.Background())
 
-	var chaptersCount int
-	if err := database.QueryRow("SELECT COUNT(*) FROM chapters WHERE manga_id = ?", mangaDBID).Scan(&chaptersCount); err != nil {
-		t.Fatalf("count chapters: %v", err)
+	if len(n.sent[chatID]) != 1 {
+		t.Fatalf("messages sent to %d = %d, want 1", chatID, len(n.sent[chatID]))
 	}
-	if chaptersCount != 2 {
-		t.Fatalf("stored chapters=%d, want 2", chaptersCount)
+	if got := n.sent[chatID][0]; got == "" {
+		t.Fatal("expected non-empty notification text")
 	}
-
-	var unread int
-	if err := database.QueryRow("SELECT unread_count FROM manga WHERE id = ?", mangaDBID).Scan(&unread); err != nil {
-		t.Fatalf("read unread_count: %v", err)
-	}
-	if unread != 2 {
-		t.Fatalf("unread_count=%d, want 2", unread)
-	}
-
-	var updated time.Time
-	if err := database.QueryRow("SELECT last_checked FROM manga WHERE id = ?", mangaDBID).Scan(&updated); err != nil {
-		t.Fatalf("read last_checked: %v", err)
-	}
-	if !updated.After(lastChecked) {
-		t.Fatalf("last_checked=%v, want after %v", updated, lastChecked)
+	if want := fmt.Sprintf("<b>%s</b> has new chapters:", mangaTitle); !strings.Contains(n.sent[chatID][0], want) {
+		t.Fatalf("notification missing title line: want contains %q", want)
 	}
 }

@@ -1,8 +1,9 @@
 package bot
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -10,7 +11,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"releasenojutsu/internal/logger"
-	"releasenojutsu/internal/mangadex"
+	"releasenojutsu/internal/updater"
 )
 
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
@@ -24,7 +25,9 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 			b.sendHelpMessage(message.Chat.ID)
 		default:
 			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
-			_, _ = b.api.Send(msg)
+			if _, err := b.api.Send(msg); err != nil {
+				logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
+			}
 		}
 	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
 		b.handleReply(message)
@@ -43,7 +46,9 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		}
 
 		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
-		_, _ = b.api.Send(msg)
+		if _, err := b.api.Send(msg); err != nil {
+			logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
+		}
 	}
 }
 
@@ -64,7 +69,9 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
-	_, _ = b.api.Send(msg)
+	if _, err := b.api.Send(msg); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
+	}
 }
 
 func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
@@ -176,7 +183,9 @@ func (b *Bot) sendMainMenu(chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
-	_, _ = b.api.Send(msg)
+	if _, err := b.api.Send(msg); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", chatID, err)
+	}
 }
 
 func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
@@ -197,7 +206,9 @@ func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 		msg.ReplyMarkup = mainMenuButton
 	}
 
-	_, _ = b.api.Send(msg)
+	if _, err := b.api.Send(msg); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", msg.ChatID, err)
+	}
 }
 
 func (b *Bot) sendHelpMessage(chatID int64) {
@@ -233,7 +244,10 @@ If you need further assistance, feel free to /start and explore the menu options
 func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 	b.logAction(chatID, "Add manga", mangaID)
 
-	mangaData, err := b.mdClient.GetManga(mangaID)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	mangaData, err := b.mdClient.GetManga(ctx, mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga data. Please check the ID and try again.")
@@ -264,7 +278,13 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 		return
 	}
 
-	b.fetchLastChapters(mangaDBID, mangaID)
+	maxSeenAt, err := b.fetchLastChapters(ctx, mangaDBID, mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed to fetch initial chapters: %v", err)
+		_ = b.db.UpdateMangaLastSeenAt(int(mangaDBID), time.Now().UTC())
+	} else if !maxSeenAt.IsZero() {
+		_ = b.db.UpdateMangaLastSeenAt(int(mangaDBID), maxSeenAt)
+	}
 
 	result := fmt.Sprintf("✅ *%s* has been added successfully!\nThe last few chapters have also been fetched.", title)
 	msg := tgbotapi.NewMessage(chatID, result)
@@ -294,7 +314,8 @@ func (b *Bot) handleListManga(chatID int64) {
 		var id int
 		var mangadexID, title string
 		var lastChecked string
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
+		var lastSeenAt sql.NullTime
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
@@ -375,7 +396,8 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
 		var id int
 		var mangadexID, title string
 		var lastChecked string
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
+		var lastSeenAt sql.NullTime
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
@@ -496,89 +518,27 @@ func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string)
 func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	b.logAction(chatID, "Check new chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
-	mangadexID, title, lastChecked, err := b.db.GetManga(mangaID)
-	if err != nil {
-		logger.LogMsg(logger.LogError, "Error fetching manga from database: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load manga details. Please try again.")
-		b.sendMessageWithMainMenuButton(msg)
-		return
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	newChapters, err := b.checkNewChaptersForManga(mangaID, mangadexID, title, lastChecked)
+	res, err := b.updater.UpdateOne(ctx, mangaID)
 	if err != nil {
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not check MangaDex for updates right now. Please try again later.")
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
-	if len(newChapters) == 0 {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for *%s*.", title))
+	if len(res.NewChapters) == 0 {
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for *%s*.", res.Title))
 		msg.ParseMode = "Markdown"
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
-	unreadCount, err := b.db.GetUnreadCount(mangaID)
-	if err != nil {
-		unreadCount = len(newChapters)
-	}
-
-	var messageBuilder strings.Builder
-	messageBuilder.WriteString("📢 *New Chapter Alert!*\n\n")
-	messageBuilder.WriteString(fmt.Sprintf("*%s* has new chapters:\n", title))
-	for _, chapter := range newChapters {
-		messageBuilder.WriteString(fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title))
-	}
-	messageBuilder.WriteString(fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n", unreadCount))
-	messageBuilder.WriteString("\nUse /start to mark chapters as read or explore other options.")
-
-	msg := tgbotapi.NewMessage(chatID, messageBuilder.String())
-	msg.ParseMode = "Markdown"
+	message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount)
+	msg := tgbotapi.NewMessage(chatID, message)
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
-}
-
-func (b *Bot) checkNewChaptersForManga(mangaID int, mangadexID, title string, lastChecked time.Time) ([]mangadex.ChapterInfo, error) {
-	chapterFeedResp, err := b.mdClient.GetChapterFeed(mangadexID)
-	if err != nil {
-		logger.LogMsg(logger.LogError, "Error fetching chapter data for %s (ID: %s): %v", title, mangadexID, err)
-		return nil, err
-	}
-
-	if len(chapterFeedResp.Data) == 0 {
-		logger.LogMsg(logger.LogInfo, "No chapters found for manga %s (ID: %s)", title, mangadexID)
-		_ = b.db.UpdateMangaLastChecked(mangaID)
-		return nil, nil
-	}
-
-	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
-		return chapterFeedResp.Data[i].Attributes.PublishedAt.After(chapterFeedResp.Data[j].Attributes.PublishedAt)
-	})
-
-	var newChapters []mangadex.ChapterInfo
-	lastCheckedUTC := lastChecked.UTC()
-
-	for _, chapter := range chapterFeedResp.Data {
-		chapterTimeUTC := chapter.Attributes.PublishedAt.UTC()
-		if chapterTimeUTC.After(lastCheckedUTC) {
-			newChapters = append(newChapters, mangadex.ChapterInfo{
-				Number: chapter.Attributes.Chapter,
-				Title:  chapter.Attributes.Title,
-			})
-
-			if err := b.db.AddChapter(int64(mangaID), chapter.Attributes.Chapter, chapter.Attributes.Title, chapterTimeUTC); err != nil {
-				logger.LogMsg(logger.LogError, "Error inserting chapter into database: %v", err)
-			}
-		} else {
-			break
-		}
-	}
-
-	if len(newChapters) > 0 {
-		_ = b.db.UpdateMangaUnreadCount(mangaID, len(newChapters))
-	}
-	_ = b.db.UpdateMangaLastChecked(mangaID)
-
-	return newChapters, nil
 }
 
 func (b *Bot) looksLikeMangaDexID(text string) bool {
@@ -587,11 +547,25 @@ func (b *Bot) looksLikeMangaDexID(text string) bool {
 	return len(text) == 36 && strings.Count(text, "-") == 4
 }
 
-func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
-	chapterFeed, err := b.mdClient.GetChapterFeed(mangadexID)
+func (b *Bot) fetchLastChapters(ctx context.Context, mangaDBID int64, mangadexID string) (time.Time, error) {
+	chapterFeed, err := b.mdClient.GetChapterFeed(ctx, mangadexID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error fetching chapter data: %v", err)
-		return
+		return time.Time{}, err
+	}
+
+	var maxSeenAt time.Time
+	for _, chapter := range chapterFeed.Data {
+		seenAt := chapter.Attributes.CreatedAt.UTC()
+		if chapter.Attributes.CreatedAt.IsZero() {
+			seenAt = chapter.Attributes.ReadableAt.UTC()
+		}
+		if chapter.Attributes.ReadableAt.IsZero() {
+			seenAt = chapter.Attributes.PublishedAt.UTC()
+		}
+		if maxSeenAt.Before(seenAt) {
+			maxSeenAt = seenAt
+		}
 	}
 
 	chaptersToStore := chapterFeed.Data
@@ -600,11 +574,27 @@ func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
 	}
 
 	for _, chapter := range chaptersToStore {
-		err := b.db.AddChapter(mangaDBID, chapter.Attributes.Chapter, chapter.Attributes.Title, chapter.Attributes.PublishedAt)
+		publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
+		readableAtUTC := chapter.Attributes.ReadableAt.UTC()
+		if chapter.Attributes.ReadableAt.IsZero() {
+			readableAtUTC = publishedAtUTC
+		}
+		createdAtUTC := chapter.Attributes.CreatedAt.UTC()
+		if chapter.Attributes.CreatedAt.IsZero() {
+			createdAtUTC = readableAtUTC
+		}
+		updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
+		if chapter.Attributes.UpdatedAt.IsZero() {
+			updatedAtUTC = createdAtUTC
+		}
+
+		err := b.db.AddChapter(mangaDBID, chapter.Attributes.Chapter, chapter.Attributes.Title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error inserting chapter into database: %v", err)
 		}
 	}
+
+	return maxSeenAt, nil
 }
 
 func (b *Bot) logAction(userID int64, action, details string) {

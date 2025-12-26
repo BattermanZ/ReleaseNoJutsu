@@ -1,6 +1,7 @@
 package mangadex
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -80,22 +81,15 @@ func TestGetChapterFeed_UsesClientBaseURLAndParsesPublishAt(t *testing.T) {
 		}
 
 		resp := ChapterFeedResponse{
-			Data: []struct {
-				Attributes struct {
-					Chapter     string    `json:"chapter"`
-					Title       string    `json:"title"`
-					PublishedAt time.Time `json:"publishAt"`
-				} `json:"attributes"`
-			}{
+			Data: []Chapter{
 				{
-					Attributes: struct {
-						Chapter     string    `json:"chapter"`
-						Title       string    `json:"title"`
-						PublishedAt time.Time `json:"publishAt"`
-					}{
+					Attributes: ChapterAttributes{
 						Chapter:     "104",
 						Title:       "The Birth of Saiyaman X",
 						PublishedAt: wantPublishedAt,
+						ReadableAt:  wantPublishedAt,
+						CreatedAt:   wantPublishedAt,
+						UpdatedAt:   wantPublishedAt,
 					},
 				},
 			},
@@ -111,7 +105,7 @@ func TestGetChapterFeed_UsesClientBaseURLAndParsesPublishAt(t *testing.T) {
 	c := NewClient()
 	c.BaseURL = srv.URL
 
-	got, err := c.GetChapterFeed(wantMangaID)
+	got, err := c.GetChapterFeed(context.Background(), wantMangaID)
 	if err != nil {
 		t.Fatalf("GetChapterFeed() error: %v", err)
 	}

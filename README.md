@@ -13,7 +13,7 @@ ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite ma
 
 ## Requirements 🛠️
 
-- Go 1.23.5 or newer
+- Go 1.25.5 or newer
 - SQLite3
 - Docker (optional)
 - A Telegram bot token

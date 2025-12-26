@@ -23,12 +23,13 @@ type Manga struct {
 	MangaDexID  string
 	Title       string
 	LastChecked time.Time
+	LastSeenAt  time.Time
 }
 
 // New opens a connection to the database.
 
 func New(path string) (*DB, error) {
-	db, err := sql.Open("sqlite3", path+"?_busy_timeout=5000&_journal_mode=WAL")
+	db, err := sql.Open("sqlite3", path+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +58,7 @@ func (db *DB) CreateTables() error {
 			mangadex_id TEXT NOT NULL UNIQUE,
 			title TEXT NOT NULL,
 			last_checked TIMESTAMP,
+			last_seen_at TIMESTAMP,
 			unread_count INTEGER DEFAULT 0
 		);
 
@@ -66,6 +68,9 @@ func (db *DB) CreateTables() error {
 			chapter_number TEXT NOT NULL,
 			title TEXT,
 			published_at TIMESTAMP,
+			readable_at TIMESTAMP,
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP,
 			is_read BOOLEAN DEFAULT FALSE,
 			FOREIGN KEY (manga_id) REFERENCES manga (id)
 		);
@@ -82,35 +87,180 @@ func (db *DB) CreateTables() error {
 	return err
 }
 
+func (db *DB) Migrate() error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	hasMangaLastSeenAt, err := db.hasColumn("manga", "last_seen_at")
+	if err != nil {
+		return err
+	}
+	if !hasMangaLastSeenAt {
+		if _, err := db.Exec("ALTER TABLE manga ADD COLUMN last_seen_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	hasChaptersReadableAt, err := db.hasColumn("chapters", "readable_at")
+	if err != nil {
+		return err
+	}
+	if !hasChaptersReadableAt {
+		if _, err := db.Exec("ALTER TABLE chapters ADD COLUMN readable_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	hasChaptersCreatedAt, err := db.hasColumn("chapters", "created_at")
+	if err != nil {
+		return err
+	}
+	if !hasChaptersCreatedAt {
+		if _, err := db.Exec("ALTER TABLE chapters ADD COLUMN created_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	hasChaptersUpdatedAt, err := db.hasColumn("chapters", "updated_at")
+	if err != nil {
+		return err
+	}
+	if !hasChaptersUpdatedAt {
+		if _, err := db.Exec("ALTER TABLE chapters ADD COLUMN updated_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	// Deduplicate legacy data before adding the unique index.
+	// Historically, chapters were inserted with INSERT OR REPLACE but without a unique constraint,
+	// so duplicates could accumulate. We keep the latest row (by id) per (manga_id, chapter_number),
+	// while preserving is_read=true if any duplicate row was marked read.
+	if _, err := db.Exec(`
+		UPDATE chapters
+		SET is_read = (
+			SELECT MAX(is_read)
+			FROM chapters c2
+			WHERE c2.manga_id = chapters.manga_id AND c2.chapter_number = chapters.chapter_number
+		)
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		DELETE FROM chapters
+		WHERE id NOT IN (
+			SELECT MAX(id)
+			FROM chapters
+			GROUP BY manga_id, chapter_number
+		)
+	`); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_chapters_manga_chapter ON chapters(manga_id, chapter_number)"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_chapters_manga_is_read ON chapters(manga_id, is_read)"); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(`
+		UPDATE manga
+		SET last_seen_at = COALESCE(
+			(
+				SELECT MAX(COALESCE(created_at, readable_at, published_at))
+				FROM chapters
+				WHERE chapters.manga_id = manga.id
+			),
+			last_checked
+		)
+		WHERE last_seen_at IS NULL
+	`); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(`
+		UPDATE manga
+		SET unread_count = (
+			SELECT COUNT(*)
+			FROM chapters
+			WHERE chapters.manga_id = manga.id AND is_read = false
+		)
+	`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *DB) hasColumn(tableName, columnName string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + tableName + ")")
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var ctype string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return false, err
+		}
+		if name == columnName {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 func (db *DB) AddManga(mangaID, title string) (int64, error) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
 	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, last_checked) VALUES (?, ?, ?)",
-		mangaID, title, time.Now())
+		mangaID, title, time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
 }
 
-func (db *DB) AddChapter(mangaID int64, chapterNumber, title string, publishedAt time.Time) error {
+func (db *DB) AddChapter(mangaID int64, chapterNumber, title string, publishedAt, readableAt, createdAt, updatedAt time.Time) error {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
 	_, err := db.Exec(`
-		INSERT OR REPLACE INTO chapters (manga_id, chapter_number, title, published_at) 
-		VALUES (?, ?, ?, ?)
-	`, mangaID, chapterNumber, title, publishedAt)
+		INSERT INTO chapters (manga_id, chapter_number, title, published_at, readable_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(manga_id, chapter_number) DO UPDATE SET
+			title = excluded.title,
+			published_at = excluded.published_at,
+			readable_at = excluded.readable_at,
+			created_at = excluded.created_at,
+			updated_at = excluded.updated_at
+	`, mangaID, chapterNumber, title, publishedAt, readableAt, createdAt, updatedAt)
 	return err
 }
 
-func (db *DB) GetManga(mangaID int) (string, string, time.Time, error) {
+func (db *DB) GetManga(mangaID int) (string, string, time.Time, time.Time, error) {
 	var mangadexID, title string
 	var lastChecked time.Time
-	err := db.QueryRow("SELECT mangadex_id, title, last_checked FROM manga WHERE id = ?", mangaID).
-		Scan(&mangadexID, &title, &lastChecked)
-	return mangadexID, title, lastChecked, err
+	var lastSeenAt sql.NullTime
+	err := db.QueryRow("SELECT mangadex_id, title, last_checked, last_seen_at FROM manga WHERE id = ?", mangaID).
+		Scan(&mangadexID, &title, &lastChecked, &lastSeenAt)
+	if err != nil {
+		return "", "", time.Time{}, time.Time{}, err
+	}
+	if lastSeenAt.Valid {
+		return mangadexID, title, lastChecked, lastSeenAt.Time, nil
+	}
+	return mangadexID, title, lastChecked, time.Time{}, nil
 }
 
 func (db *DB) UpdateMangaLastChecked(mangaID int) error {
@@ -122,23 +272,43 @@ func (db *DB) UpdateMangaLastChecked(mangaID int) error {
 	return err
 }
 
-func (db *DB) UpdateMangaUnreadCount(mangaID int, count int) error {
+func (db *DB) UpdateMangaLastSeenAt(mangaID int, seenAt time.Time) error {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	_, err := db.Exec("UPDATE manga SET unread_count = unread_count + ? WHERE id = ?",
-		count, mangaID)
+	_, err := db.Exec("UPDATE manga SET last_seen_at = ? WHERE id = ?",
+		seenAt.UTC(), mangaID)
 	return err
 }
 
 func (db *DB) GetUnreadCount(mangaID int) (int, error) {
+	return db.CountUnreadChapters(mangaID)
+}
+
+func (db *DB) CountUnreadChapters(mangaID int) (int, error) {
 	var unreadCount int
-	err := db.QueryRow("SELECT unread_count FROM manga WHERE id = ?", mangaID).Scan(&unreadCount)
+	err := db.QueryRow("SELECT COUNT(*) FROM chapters WHERE manga_id = ? AND is_read = false", mangaID).Scan(&unreadCount)
 	return unreadCount, err
 }
 
+func (db *DB) RecalculateUnreadCount(mangaID int) error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	_, err := db.Exec(`
+		UPDATE manga
+		SET unread_count = (
+			SELECT COUNT(*)
+			FROM chapters
+			WHERE chapters.manga_id = manga.id AND is_read = false
+		)
+		WHERE id = ?
+	`, mangaID)
+	return err
+}
+
 func (db *DB) GetAllManga() (*sql.Rows, error) {
-	return db.Query("SELECT id, mangadex_id, title, last_checked FROM manga")
+	return db.Query("SELECT id, mangadex_id, title, last_checked, last_seen_at FROM manga")
 }
 
 func (db *DB) ListManga() ([]Manga, error) {
@@ -151,8 +321,12 @@ func (db *DB) ListManga() ([]Manga, error) {
 	var manga []Manga
 	for rows.Next() {
 		var row Manga
-		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &row.LastChecked); err != nil {
+		var lastSeenAt sql.NullTime
+		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &row.LastChecked, &lastSeenAt); err != nil {
 			return nil, err
+		}
+		if lastSeenAt.Valid {
+			row.LastSeenAt = lastSeenAt.Time
 		}
 		manga = append(manga, row)
 	}
@@ -164,6 +338,27 @@ func (db *DB) ListManga() ([]Manga, error) {
 
 func (db *DB) GetAllUsers() (*sql.Rows, error) {
 	return db.Query("SELECT chat_id FROM users")
+}
+
+func (db *DB) ListUsers() ([]int64, error) {
+	rows, err := db.GetAllUsers()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var chatIDs []int64
+	for rows.Next() {
+		var chatID int64
+		if err := rows.Scan(&chatID); err != nil {
+			return nil, err
+		}
+		chatIDs = append(chatIDs, chatID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return chatIDs, nil
 }
 
 func (db *DB) EnsureUser(chatID int64) error {
@@ -197,6 +392,18 @@ func (db *DB) MarkChapterAsRead(mangaID int, chapterNumber string) error {
 		AS DECIMAL)
 	`, mangaID, chapterNumber, chapterNumber, chapterNumber, chapterNumber)
 
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+		UPDATE manga
+		SET unread_count = (
+			SELECT COUNT(*)
+			FROM chapters
+			WHERE chapters.manga_id = manga.id AND is_read = false
+		)
+		WHERE id = ?
+	`, mangaID)
 	return err
 }
 
@@ -210,6 +417,18 @@ func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
 		WHERE manga_id = ? AND chapter_number = ?
 	`, mangaID, chapterNumber)
 
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+		UPDATE manga
+		SET unread_count = (
+			SELECT COUNT(*)
+			FROM chapters
+			WHERE chapters.manga_id = manga.id AND is_read = false
+		)
+		WHERE id = ?
+	`, mangaID)
 	return err
 }
 

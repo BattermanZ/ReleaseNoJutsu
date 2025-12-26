@@ -1,6 +1,7 @@
 package mangadex
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ func NewClient() *Client {
 
 // FetchJSON fetches JSON data from the given URL.
 
-func (c *Client) FetchJSON(url string) ([]byte, error) {
+func (c *Client) FetchJSON(ctx context.Context, url string) ([]byte, error) {
 	maxRetries := 3
 	var lastErr error
 
@@ -48,7 +49,7 @@ func (c *Client) FetchJSON(url string) ([]byte, error) {
 			logger.LogMsg(logger.LogInfo, "Retry %d/%d for URL: %s", i+1, maxRetries, url)
 		}
 
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			lastErr = fmt.Errorf("error creating request: %v", err)
 			continue
@@ -60,6 +61,9 @@ func (c *Client) FetchJSON(url string) ([]byte, error) {
 		resp, err := c.HTTPClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("error making request: %v", err)
+			if ctx.Err() != nil {
+				break
+			}
 			continue
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -97,9 +101,9 @@ func (c *Client) FetchJSON(url string) ([]byte, error) {
 	return nil, fmt.Errorf("failed after %d retries. Last error: %v", maxRetries, lastErr)
 }
 
-func (c *Client) GetManga(mangaID string) (*MangaResponse, error) {
+func (c *Client) GetManga(ctx context.Context, mangaID string) (*MangaResponse, error) {
 	mangaURL := fmt.Sprintf("%s/manga/%s", c.BaseURL, mangaID)
-	mangaResp, err := c.FetchJSON(mangaURL)
+	mangaResp, err := c.FetchJSON(ctx, mangaURL)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +116,9 @@ func (c *Client) GetManga(mangaID string) (*MangaResponse, error) {
 	return &mangaData, nil
 }
 
-func (c *Client) GetChapterFeed(mangaID string) (*ChapterFeedResponse, error) {
-	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[chapter]=desc&translatedLanguage[]=en&limit=100", c.BaseURL, mangaID)
-	chapterResp, err := c.FetchJSON(chapterURL)
+func (c *Client) GetChapterFeed(ctx context.Context, mangaID string) (*ChapterFeedResponse, error) {
+	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[createdAt]=desc&translatedLanguage[]=en&limit=100", c.BaseURL, mangaID)
+	chapterResp, err := c.FetchJSON(ctx, chapterURL)
 	if err != nil {
 		return nil, err
 	}

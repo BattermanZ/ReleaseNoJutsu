@@ -17,6 +17,9 @@ func TestEnsureUser_IsIdempotent(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
 
 	chatID := int64(12345)
 	if err := database.EnsureUser(chatID); err != nil {
@@ -54,6 +57,9 @@ func TestListManga_DoesNotHoldConnectionOpen(t *testing.T) {
 
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
 	}
 
 	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")

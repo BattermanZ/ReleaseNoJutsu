@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -41,4 +42,17 @@ func Load() (*Config, error) {
 		AllowedUsers:     allowedUsers,
 		DatabasePath:     "database/ReleaseNoJutsu.db",
 	}, nil
+}
+
+func (c *Config) Validate() error {
+	if strings.TrimSpace(c.TelegramBotToken) == "" {
+		return fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
+	}
+	if len(c.AllowedUsers) == 0 {
+		return fmt.Errorf("TELEGRAM_ALLOWED_USERS is required (at least 1 user id)")
+	}
+	if strings.TrimSpace(c.DatabasePath) == "" {
+		return fmt.Errorf("database path is required")
+	}
+	return nil
 }

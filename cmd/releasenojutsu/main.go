@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -13,6 +16,8 @@ import (
 	"releasenojutsu/internal/db"
 	"releasenojutsu/internal/logger"
 	"releasenojutsu/internal/mangadex"
+	"releasenojutsu/internal/notify"
+	"releasenojutsu/internal/updater"
 )
 
 func main() {
@@ -22,6 +27,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Invalid config: %v", err)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Ensure database folder exists
 	dbDir := filepath.Dir(cfg.DatabasePath)
@@ -47,6 +58,10 @@ func main() {
 		logger.LogMsg(logger.LogError, "Failed to create tables: %v", err)
 		return
 	}
+	if err := database.Migrate(); err != nil {
+		logger.LogMsg(logger.LogError, "Failed to migrate database: %v", err)
+		return
+	}
 
 	mdClient := mangadex.NewClient()
 
@@ -56,10 +71,15 @@ func main() {
 		return
 	}
 
-	appBot := bot.New(api, database, mdClient, cfg)
+	upd := updater.New(database, mdClient)
+	notifier := notify.NewTelegramNotifier(api)
 
-	scheduler := cron.NewScheduler(database, api, mdClient)
-	scheduler.Start()
+	appBot := bot.New(api, database, mdClient, cfg, upd)
 
-	appBot.Start()
+	scheduler := cron.NewScheduler(database, notifier, upd)
+	go scheduler.Run(ctx)
+
+	if err := appBot.Run(ctx); err != nil {
+		logger.LogMsg(logger.LogError, "Bot exited with error: %v", err)
+	}
 }
