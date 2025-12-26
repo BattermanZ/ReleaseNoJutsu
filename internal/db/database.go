@@ -2,12 +2,12 @@ package db
 
 import (
 	"database/sql"
-	
+
 	"sync"
 	"time"
 
-	"releasenojutsu/internal/logger"
 	_ "github.com/mattn/go-sqlite3"
+	"releasenojutsu/internal/logger"
 )
 
 var dbMutex sync.Mutex
@@ -16,6 +16,13 @@ var dbMutex sync.Mutex
 
 type DB struct {
 	*sql.DB
+}
+
+type Manga struct {
+	ID          int
+	MangaDexID  string
+	Title       string
+	LastChecked time.Time
 }
 
 // New opens a connection to the database.
@@ -134,8 +141,37 @@ func (db *DB) GetAllManga() (*sql.Rows, error) {
 	return db.Query("SELECT id, mangadex_id, title, last_checked FROM manga")
 }
 
+func (db *DB) ListManga() ([]Manga, error) {
+	rows, err := db.GetAllManga()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var manga []Manga
+	for rows.Next() {
+		var row Manga
+		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &row.LastChecked); err != nil {
+			return nil, err
+		}
+		manga = append(manga, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return manga, nil
+}
+
 func (db *DB) GetAllUsers() (*sql.Rows, error) {
 	return db.Query("SELECT chat_id FROM users")
+}
+
+func (db *DB) EnsureUser(chatID int64) error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	_, err := db.Exec("INSERT OR IGNORE INTO users (chat_id) VALUES (?)", chatID)
+	return err
 }
 
 func (db *DB) MarkChapterAsRead(mangaID int, chapterNumber string) error {

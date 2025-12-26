@@ -18,7 +18,7 @@
 go.work
 
 # SQLite database files
-database/
+database*/
 *.db
 *.db-shm
 *.db-wal

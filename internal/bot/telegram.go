@@ -52,14 +52,26 @@ func (b *Bot) Start() {
 				b.sendUnauthorizedMessage(update.Message.Chat.ID)
 				continue
 			}
+			b.ensureUser(update.Message.Chat.ID)
 			b.handleMessage(update.Message)
 		} else if update.CallbackQuery != nil {
 			if !b.isAuthorized(update.CallbackQuery.From.ID) {
-				b.sendUnauthorizedMessage(update.CallbackQuery.Message.Chat.ID)
+				if update.CallbackQuery.Message != nil {
+					b.sendUnauthorizedMessage(update.CallbackQuery.Message.Chat.ID)
+				}
 				continue
+			}
+			if update.CallbackQuery.Message != nil {
+				b.ensureUser(update.CallbackQuery.Message.Chat.ID)
 			}
 			b.handleCallbackQuery(update.CallbackQuery)
 		}
+	}
+}
+
+func (b *Bot) ensureUser(chatID int64) {
+	if err := b.db.EnsureUser(chatID); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed to ensure chat ID %d in users table: %v", chatID, err)
 	}
 }
 

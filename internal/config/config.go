@@ -11,9 +11,9 @@ import (
 // Config holds the application configuration
 
 type Config struct {
-	TelegramBotToken  string
-	AllowedUsers      []int64
-	DatabasePath      string
+	TelegramBotToken string
+	AllowedUsers     []int64
+	DatabasePath     string
 }
 
 // Load loads the configuration from environment variables
@@ -38,7 +38,7 @@ func Load() (*Config, error) {
 
 	return &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
-		AllowedUsers:      allowedUsers,
-		DatabasePath:      "database/ReleaseNoJutsu.db",
+		AllowedUsers:     allowedUsers,
+		DatabasePath:     "database/ReleaseNoJutsu.db",
 	}, nil
 }

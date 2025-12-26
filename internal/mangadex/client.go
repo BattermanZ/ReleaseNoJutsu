@@ -147,5 +147,3 @@ func (c *Client) ExtractMangaIDFromURL(url string) (string, error) {
 
 	return id, nil
 }
-
-

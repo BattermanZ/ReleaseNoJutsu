@@ -3,7 +3,6 @@ package cron
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,18 +17,18 @@ import (
 // Scheduler manages the cron jobs.
 
 type Scheduler struct {
-	DB         *db.DB
-	Bot        *tgbotapi.BotAPI
-	MangaDex   *mangadex.Client
+	DB       *db.DB
+	Bot      *tgbotapi.BotAPI
+	MangaDex *mangadex.Client
 }
 
 // NewScheduler creates a new scheduler.
 
 func NewScheduler(db *db.DB, bot *tgbotapi.BotAPI, md *mangadex.Client) *Scheduler {
 	return &Scheduler{
-		DB:         db,
-		Bot:        bot,
-		MangaDex:   md,
+		DB:       db,
+		Bot:      bot,
+		MangaDex: md,
 	}
 }
 
@@ -37,7 +36,13 @@ func NewScheduler(db *db.DB, bot *tgbotapi.BotAPI, md *mangadex.Client) *Schedul
 
 func (s *Scheduler) Start() {
 	c := cron.New()
-	_, err := c.AddFunc("0 */6 * * *", func() {
+	logger.LogMsg(logger.LogInfo, "Scheduler started (runs immediately, then every 6 hours)")
+	go func() {
+		s.performUpdate()
+		s.DB.UpdateCronLastRun()
+	}()
+
+	_, err := c.AddFunc("@every 6h", func() {
 		s.performUpdate()
 		s.DB.UpdateCronLastRun()
 	})
@@ -49,33 +54,22 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) performUpdate() {
-	logger.LogMsg(logger.LogInfo, "Starting daily update")
+	logger.LogMsg(logger.LogInfo, "Starting scheduled update")
 
-
-rows, err := s.DB.GetAllManga()
+	manga, err := s.DB.ListManga()
 	if err != nil {
-		logger.LogMsg(logger.LogError, "Error querying manga for daily update: %v", err)
+		logger.LogMsg(logger.LogError, "Error querying manga for scheduled update: %v", err)
 		return
 	}
-	defer func() { _ = rows.Close() }()
 
-	for rows.Next() {
-		var id int
-		var mangadexID, title string
-		var lastChecked time.Time
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked)
-		if err != nil {
-			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
-			continue
-		}
-
-		newChapters := s.checkNewChaptersForManga(id, mangadexID, title, lastChecked)
+	for _, m := range manga {
+		newChapters := s.checkNewChaptersForManga(m.ID, m.MangaDexID, m.Title, m.LastChecked)
 		if len(newChapters) > 0 {
-			s.sendNewChaptersNotificationToAllUsers(id, title, newChapters)
+			s.sendNewChaptersNotificationToAllUsers(m.ID, m.Title, newChapters)
 		}
 	}
 
-	logger.LogMsg(logger.LogInfo, "Daily update completed")
+	logger.LogMsg(logger.LogInfo, "Scheduled update completed")
 }
 
 func (s *Scheduler) checkNewChaptersForManga(mangaID int, mangadexID, title string, lastChecked time.Time) []mangadex.ChapterInfo {
@@ -92,19 +86,11 @@ func (s *Scheduler) checkNewChaptersForManga(mangaID int, mangadexID, title stri
 	}
 
 	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
-		chapterI, errI := strconv.ParseFloat(chapterFeedResp.Data[i].Attributes.Chapter, 64)
-		if errI != nil {
-			logger.LogMsg(logger.LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[i].Attributes.Chapter, errI)
-		}
-		chapterJ, errJ := strconv.ParseFloat(chapterFeedResp.Data[j].Attributes.Chapter, 64)
-		if errJ != nil {
-			logger.LogMsg(logger.LogWarning, "Could not parse chapter number '%s' to float: %v", chapterFeedResp.Data[j].Attributes.Chapter, errJ)
-		}
-		return chapterI > chapterJ
+		return chapterFeedResp.Data[i].Attributes.PublishedAt.After(chapterFeedResp.Data[j].Attributes.PublishedAt)
 	})
 
 	var newChapters []mangadex.ChapterInfo
-	
+
 	lastCheckedUTC := lastChecked.UTC()
 
 	for _, chapter := range chapterFeedResp.Data {
@@ -171,9 +157,8 @@ func (s *Scheduler) sendNewChaptersNotificationToAllUsers(mangaID int, mangaTitl
 
 		msg := tgbotapi.NewMessage(chatID, message)
 		msg.ParseMode = "Markdown"
-		_, _ = s.Bot.Send(msg)
-		if err != nil {
-			logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, err)
+		if _, sendErr := s.Bot.Send(msg); sendErr != nil {
+			logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, sendErr)
 		}
 	}
 }

@@ -2,12 +2,15 @@ package bot
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"releasenojutsu/internal/logger"
+	"releasenojutsu/internal/mangadex"
 )
 
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
@@ -26,14 +29,21 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
 		b.handleReply(message)
 	} else {
-		// Check if the message is a MangaDex URL
-		mangaID, err := b.mdClient.ExtractMangaIDFromURL(message.Text)
+		text := strings.TrimSpace(message.Text)
+		if b.looksLikeMangaDexID(text) {
+			b.handleAddManga(message.Chat.ID, text)
+			return
+		}
+
+		// Check if the message is a MangaDex URL.
+		mangaID, err := b.mdClient.ExtractMangaIDFromURL(text)
 		if err == nil {
 			b.handleAddManga(message.Chat.ID, mangaID)
-		} else {
-			msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
-			_, _ = b.api.Send(msg)
+			return
 		}
+
+		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
+		_, _ = b.api.Send(msg)
 	}
 }
 
@@ -41,13 +51,20 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 	b.logAction(message.From.ID, "Received reply", message.Text)
 
 	replyTo := message.ReplyToMessage.Text
-	switch {
-	case strings.Contains(replyTo, "enter the MangaDex ID"):
-		b.handleAddManga(message.Chat.ID, message.Text)
-	default:
-		msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
-		_, _ = b.api.Send(msg)
+	replyText := strings.TrimSpace(message.Text)
+
+	// Add manga flow (supports URL or raw UUID).
+	if strings.Contains(replyTo, "Add a New Manga") || strings.Contains(replyTo, "MangaDex URL or ID") || strings.Contains(replyTo, "MangaDex ID") {
+		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
+			b.handleAddManga(message.Chat.ID, mangaID)
+			return
+		}
+		b.handleAddManga(message.Chat.ID, replyText)
+		return
 	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
+	_, _ = b.api.Send(msg)
 }
 
 func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
@@ -464,9 +481,7 @@ Below are some chapters you've read. Select one to mark as unread:`, mangaTitle)
 func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string) {
 	switch nextAction {
 	case "check_new":
-		// This is now handled by the cron job, we can provide a message to the user
-		msg := tgbotapi.NewMessage(chatID, "The bot automatically checks for new chapters every 6 hours.")
-		b.sendMessageWithMainMenuButton(msg)
+		b.handleCheckNewChapters(chatID, mangaID)
 	case "mark_read":
 		b.sendChapterSelectionMenu(chatID, mangaID)
 	case "list_read":
@@ -476,6 +491,100 @@ func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string)
 	default:
 		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
 	}
+}
+
+func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
+	b.logAction(chatID, "Check new chapters", fmt.Sprintf("Manga ID: %d", mangaID))
+
+	mangadexID, title, lastChecked, err := b.db.GetManga(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error fetching manga from database: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not load manga details. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	newChapters, err := b.checkNewChaptersForManga(mangaID, mangadexID, title, lastChecked)
+	if err != nil {
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not check MangaDex for updates right now. Please try again later.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	if len(newChapters) == 0 {
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for *%s*.", title))
+		msg.ParseMode = "Markdown"
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	unreadCount, err := b.db.GetUnreadCount(mangaID)
+	if err != nil {
+		unreadCount = len(newChapters)
+	}
+
+	var messageBuilder strings.Builder
+	messageBuilder.WriteString("📢 *New Chapter Alert!*\n\n")
+	messageBuilder.WriteString(fmt.Sprintf("*%s* has new chapters:\n", title))
+	for _, chapter := range newChapters {
+		messageBuilder.WriteString(fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title))
+	}
+	messageBuilder.WriteString(fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n", unreadCount))
+	messageBuilder.WriteString("\nUse /start to mark chapters as read or explore other options.")
+
+	msg := tgbotapi.NewMessage(chatID, messageBuilder.String())
+	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) checkNewChaptersForManga(mangaID int, mangadexID, title string, lastChecked time.Time) ([]mangadex.ChapterInfo, error) {
+	chapterFeedResp, err := b.mdClient.GetChapterFeed(mangadexID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error fetching chapter data for %s (ID: %s): %v", title, mangadexID, err)
+		return nil, err
+	}
+
+	if len(chapterFeedResp.Data) == 0 {
+		logger.LogMsg(logger.LogInfo, "No chapters found for manga %s (ID: %s)", title, mangadexID)
+		_ = b.db.UpdateMangaLastChecked(mangaID)
+		return nil, nil
+	}
+
+	sort.Slice(chapterFeedResp.Data, func(i, j int) bool {
+		return chapterFeedResp.Data[i].Attributes.PublishedAt.After(chapterFeedResp.Data[j].Attributes.PublishedAt)
+	})
+
+	var newChapters []mangadex.ChapterInfo
+	lastCheckedUTC := lastChecked.UTC()
+
+	for _, chapter := range chapterFeedResp.Data {
+		chapterTimeUTC := chapter.Attributes.PublishedAt.UTC()
+		if chapterTimeUTC.After(lastCheckedUTC) {
+			newChapters = append(newChapters, mangadex.ChapterInfo{
+				Number: chapter.Attributes.Chapter,
+				Title:  chapter.Attributes.Title,
+			})
+
+			if err := b.db.AddChapter(int64(mangaID), chapter.Attributes.Chapter, chapter.Attributes.Title, chapterTimeUTC); err != nil {
+				logger.LogMsg(logger.LogError, "Error inserting chapter into database: %v", err)
+			}
+		} else {
+			break
+		}
+	}
+
+	if len(newChapters) > 0 {
+		_ = b.db.UpdateMangaUnreadCount(mangaID, len(newChapters))
+	}
+	_ = b.db.UpdateMangaLastChecked(mangaID)
+
+	return newChapters, nil
+}
+
+func (b *Bot) looksLikeMangaDexID(text string) bool {
+	// MangaDex IDs are UUIDs: 36 chars with 4 hyphens.
+	text = strings.TrimSpace(text)
+	return len(text) == 36 && strings.Count(text, "-") == 4
 }
 
 func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
@@ -497,8 +606,6 @@ func (b *Bot) fetchLastChapters(mangaDBID int64, mangadexID string) {
 		}
 	}
 }
-
-
 
 func (b *Bot) logAction(userID int64, action, details string) {
 	logger.LogMsg(logger.LogInfo, "[User: %d] [%s] %s", userID, action, details)
