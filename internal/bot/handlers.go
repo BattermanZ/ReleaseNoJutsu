@@ -23,6 +23,8 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 			b.sendMainMenu(message.Chat.ID)
 		case "help":
 			b.sendHelpMessage(message.Chat.ID)
+		case "status":
+			b.sendStatusMessage(message.Chat.ID)
 		default:
 			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
 			if _, err := b.api.Send(msg); err != nil {
@@ -223,6 +225,7 @@ This bot helps you track your favorite manga series. It automatically checks for
 *Commands:*
 • /start - Return to the main menu
 • /help - Show this help message
+• /status - Show bot status/health
 
 *Main Features:*
 - *Add manga:* Start tracking a new manga by sending its MangaDex URL or ID.
@@ -238,6 +241,35 @@ Simply send the MangaDex URL (e.g., https://mangadex.org/title/123e4567-e89b-12d
 If you need further assistance, feel free to /start and explore the menu options!`
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ParseMode = "Markdown"
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendStatusMessage(chatID int64) {
+	b.logAction(chatID, "Sent status", "")
+
+	status, err := b.db.GetStatus()
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting status: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve status right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	var bld strings.Builder
+	bld.WriteString("<b>ReleaseNoJutsu Status</b>\n\n")
+	bld.WriteString(fmt.Sprintf("Tracked manga: <b>%d</b>\n", status.MangaCount))
+	bld.WriteString(fmt.Sprintf("Chapters stored: <b>%d</b>\n", status.ChapterCount))
+	bld.WriteString(fmt.Sprintf("Registered chats: <b>%d</b>\n", status.UserCount))
+	bld.WriteString(fmt.Sprintf("Total unread: <b>%d</b>\n", status.UnreadTotal))
+	if status.HasCronLastRun {
+		bld.WriteString(fmt.Sprintf("Scheduler last run: <b>%s</b>\n", status.CronLastRun.Local().Format(time.RFC1123)))
+	} else {
+		bld.WriteString("Scheduler last run: <b>never</b>\n")
+	}
+	bld.WriteString("\nUpdate interval: every 6 hours\n")
+
+	msg := tgbotapi.NewMessage(chatID, bld.String())
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
 
@@ -285,6 +317,10 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 	} else if !maxSeenAt.IsZero() {
 		_ = b.db.UpdateMangaLastSeenAt(int(mangaDBID), maxSeenAt)
 	}
+	if !maxSeenAt.IsZero() {
+		_ = b.db.SetLastReadAt(int(mangaDBID), maxSeenAt)
+		_ = b.db.RecalculateUnreadCount(int(mangaDBID))
+	}
 
 	result := fmt.Sprintf("✅ *%s* has been added successfully!\nThe last few chapters have also been fetched.", title)
 	msg := tgbotapi.NewMessage(chatID, result)
@@ -315,7 +351,8 @@ func (b *Bot) handleListManga(chatID int64) {
 		var mangadexID, title string
 		var lastChecked string
 		var lastSeenAt sql.NullTime
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt)
+		var lastReadAt sql.NullTime
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt, &lastReadAt)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
@@ -397,7 +434,8 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
 		var mangadexID, title string
 		var lastChecked string
 		var lastSeenAt sql.NullTime
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt)
+		var lastReadAt sql.NullTime
+		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt, &lastReadAt)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue

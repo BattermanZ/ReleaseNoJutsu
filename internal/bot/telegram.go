@@ -49,6 +49,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	commands := []tgbotapi.BotCommand{
 		{Command: "start", Description: "Show the main menu"},
 		{Command: "help", Description: "Show help information"},
+		{Command: "status", Description: "Show status/health information"},
 	}
 	if _, err := b.api.Request(tgbotapi.NewSetMyCommands(commands...)); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed to set bot commands: %v", err)

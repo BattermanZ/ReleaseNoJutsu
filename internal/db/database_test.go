@@ -67,6 +67,10 @@ func TestListManga_DoesNotHoldConnectionOpen(t *testing.T) {
 		t.Fatalf("AddManga(): %v", err)
 	}
 
+	if err := database.SetLastReadAt(int(mangaID), time.Now().UTC()); err != nil {
+		t.Fatalf("SetLastReadAt(): %v", err)
+	}
+
 	manga, err := database.ListManga()
 	if err != nil {
 		t.Fatalf("ListManga(): %v", err)
