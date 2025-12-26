@@ -1,154 +1,141 @@
-# ReleaseNoJutsu 🥷
+# ReleaseNoJutsu
 
-ReleaseNoJutsu is a personal manga update assistant. It tracks your favourite manga series on MangaDex and provides notifications for new chapters via Telegram. It also allows you to manage your reading progress conveniently through a Telegram bot interface.
-
-## Features ✨
-
-- **📖 Track Manga:** Add manga by providing its MangaDex ID.
-- **🗑️ Remove Manga:** Stop tracking a manga you no longer wish to follow.
-- **🔔 Notifications:** Receive updates about new chapters every 6 hours.
-- **✅ Progress Management:** Mark chapters as read or unread.
-- **💾 Database Management:** Uses SQLite to store manga, chapters, and user data.
-- **⏰ Cron Jobs:** Automatically check for updates every 6 hours.
-
-## Requirements 🛠️
-
-- Go 1.25.5 or newer
-- SQLite3
-- Docker (optional)
-- A Telegram bot token
-- A .env file with the following variables:
-  ```env
-  TELEGRAM_BOT_TOKEN=<your_bot_token>
-  TELEGRAM_ALLOWED_USERS=<comma_separated_chat_ids>
-  ```
-
-## Setting up Telegram Bot 🤖
-
-1. **Create a Bot:**
-   - Open Telegram and search for [@BotFather](https://t.me/botfather)
-   - Send `/newbot` command
-   - Follow instructions to name your bot
-   - Save the API token provided by BotFather
-
-2. **Get Your Chat ID:**
-   - Search for [@userinfobot](https://t.me/userinfobot) on Telegram
-   - Send any message to the bot
-   - It will reply with your user info including your ID
-   - Save this ID for the `TELEGRAM_ALLOWED_USERS` environment variable
-
-## Installation 🖥️
-
-1. **Clone the Repository:**
-
-   ```bash
-   git clone <repository-url>
-   cd <repository-folder>
-   ```
-
-2. **Using Docker Compose:**
-
-   - Ensure you have a `docker-compose.yml` file in your project root (one was generated for you).
-   - Build and run the Docker containers:
-     ```bash
-     docker-compose up -d --build
-     ```
-   - To stop the containers:
-     ```bash
-     docker-compose down
-     ```
-
-3. **Install Dependencies (Manual Installation):**
-   Make sure you have `go` installed. Install required Go packages:
-
-   ```bash
-   go get github.com/joho/godotenv
-   go get github.com/go-telegram-bot-api/telegram-bot-api/v5
-   go get github.com/robfig/cron/v3
-   go get github.com/mattn/go-sqlite3
-   ```
-
-4. **Create Required Files and Directories:**
-
-   - `.env` file (as specified in Requirements).
-   - Ensure the folders `logs` and `database` exist.
-
-5. **Run the Application:**
-
-   ```bash
-   go run main.go
-   ```
-
-## Usage 🎮
-
-### Getting MangaDex ID 📚
-
-1. Go to [MangaDex](https://mangadex.org) and search for your manga
-2. Click on the manga title to open its page
-3. The ID is in the URL, for example:
-   - For URL: `https://mangadex.org/title/a1c7c817-4e59-43b7-9365-09675a149a6f/one-piece`
-   - The ID is: `a1c7c817-4e59-43b7-9365-09675a149a6f`
-4. Use this ID when adding a manga through the bot
-
-### Telegram Commands 🗨️
-
-- **/start:** Show the main menu.
-- **/help:** Display help information.
-
-### Main Menu Options 📋
-
-- **➕ Add Manga:** Add a new manga to track by providing its MangaDex ID.
-- **📚 List Followed Manga:** View all the manga you are currently tracking.
-- **🔍 Check for New Chapters:** Check for updates and see newly released chapters.
-- **✅ Mark Chapters as Read:** Update your progress by marking chapters as read.
-- **📖 List Read Chapters:** Review chapters you've marked as read.
-- **🗑️ Remove Manga:** Stop tracking a manga you no longer wish to follow.
-
-### Notifications 📤
-
-The bot sends updates about new chapters every 6 hours (via a cron job). You can view and manage these updates directly through Telegram.
-
-## Code Overview 🧑‍💻
-
-### File Structure 📂
-
-- **main.go:** Contains the entire application logic, including:
-  - Initialization of logger, folders, and database.
-  - Telegram bot setup and command handling.
-  - Cron job for daily updates.
-  - Functions for managing manga, chapters, and user interactions.
+ReleaseNoJutsu is a personal Telegram bot that tracks MangaDex and notifies you when new chapters are released. It stores what you follow and your reading progress in SQLite, and checks for updates on a schedule (runs immediately on startup, then every 6 hours).
 
 For a deeper architectural/workflow walkthrough (with diagrams), see `docs/workflow.md`.
 
-## Logs 🗂️
+## What you can do
 
-All logs are stored in the `logs` directory with the filename `ReleaseNoJutsu.log`. The logs include details of application startup, database operations, user interactions, and errors.
+- Track manga by MangaDex URL or UUID
+- List followed manga
+- Manually check a specific manga for new chapters
+- Get automatic notifications for newly released chapters
+- Track reading progress (mark read/unread) and keep an “unread chapters” count per manga
+- Use `/status` to see basic health/state (tracked counts, total unread, last scheduler run)
 
-## Contributing 🤝
+When a manga reaches **3+ unread chapters**, notifications include a warning.
 
-1. Fork the repository.
-2. Create a feature branch:
+## Quick start (Docker Compose)
+
+1. Create your env file:
    ```bash
-   git checkout -b feature-name
+   cp .env.example .env
    ```
-3. Commit your changes:
+2. Edit `.env` and set:
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_ALLOWED_USERS` (comma-separated Telegram user IDs)
+3. Start the app:
    ```bash
-   git commit -m "Description of changes"
+   docker compose up -d --build
    ```
-4. Push your branch:
-   ```bash
-   git push origin feature-name
+
+### Example `docker-compose.yml`
+
+This app uses a distroless runtime image and runs as **non-root** by default, so make sure your bind-mounted folders are writable by the chosen UID/GID.
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+    image: releasenojutsu:local
+    container_name: releasenojutsu
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    volumes:
+      - ./logs:/app/logs
+      - ./database:/app/database
+    user: "${PUID:-65532}:${PGID:-65532}"
+```
+
+Notes:
+- If you want to run it as your host user, add to `.env`: `PUID=1000` and `PGID=1000` (or whatever `id -u` / `id -g` returns).
+- If you don’t care about running non-root, you can omit `user:` and instead `chown` the host folders to `65532:65532`.
+
+## Quick start (local Go)
+
+Requirements:
+- Go `1.25.5+`
+- A C toolchain for CGO (because `github.com/mattn/go-sqlite3`): on Debian/Ubuntu, install `build-essential`
+
+Run:
+```bash
+cp .env.example .env
+go run ./cmd/releasenojutsu
+```
+
+It creates:
+- DB at `database/ReleaseNoJutsu.db`
+- Logs at `logs/ReleaseNoJutsu.log`
+
+## Telegram setup
+
+1. Create a bot via `@BotFather` and copy the token.
+2. Get your Telegram numeric user ID (e.g. via `@userinfobot`).
+3. Put them in `.env`:
+   ```env
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_ALLOWED_USERS=123456789,987654321
    ```
-5. Create a pull request.
 
-## Troubleshooting 🛠️
+Only users listed in `TELEGRAM_ALLOWED_USERS` can use the bot.
 
-- **Error: Missing .env file:** Ensure the `.env` file exists with the correct variables.
-- **SQLite Errors:** Verify that the `database` directory is writable and SQLite3 is installed.
-- **Telegram Bot Issues:** Ensure the bot token and allowed user IDs in `.env` are correct.
+Important: this app uses Telegram long-polling (`getUpdates`), so **only one instance** of the bot should run for a given token. If you run multiple containers/processes you’ll see `Conflict: terminated by other getUpdates request`.
 
-## License 📜
+## Using the bot
 
-This project is licensed under the GPLv3 License.
+Commands:
+- `/start` – show the main menu
+- `/help` – show help
+- `/status` – status/health summary
 
----
+Main menu actions:
+- **Add manga**: send a MangaDex URL (e.g. `https://mangadex.org/title/<uuid>/...`) or a raw UUID
+- **List followed manga**
+- **Check for new chapters** (manual poll for one manga)
+- **Mark chapter as read** (advances your “last read” point for that manga)
+- **List read chapters** (and mark a chapter as unread)
+- **Remove manga**
+
+Notifications:
+- The scheduler checks for new chapters every 6 hours and sends a message when something new is found.
+- Your chat is automatically registered for notifications after you interact with the bot (and you’re authorized).
+
+## How it works (high level)
+
+Entry point:
+- `cmd/releasenojutsu/main.go` wires everything together and starts the scheduler + bot loop.
+
+Core packages:
+- `internal/bot`: Telegram commands/menus, input parsing (URL/UUID), and calling update/progress actions.
+- `internal/cron`: scheduler that runs updates immediately and then every 6 hours.
+- `internal/updater`: shared “check MangaDex → store chapters → update unread count → return results” logic used by both manual checks and the scheduler.
+- `internal/mangadex`: HTTP client + response parsing for MangaDex endpoints.
+- `internal/db`: SQLite schema + migrations and all read/write operations (manga, chapters, users, unread counts, status).
+- `internal/notify`: notification sender (Telegram implementation).
+- `internal/logger`: writes to stdout and `logs/ReleaseNoJutsu.log`.
+
+Update detection:
+- Each manga keeps a “watermark” timestamp (what’s been seen/read).
+- When checking MangaDex, the updater compares chapter timestamps and inserts anything newer, then recomputes unread counts.
+
+## Development & validation
+
+Common checks (similar intent to “cargo fmt / cargo check”):
+- Format: `gofmt -w .`
+- Tests: `go test ./...`
+- Vet/static checks: `go vet ./...`
+- (Optional) Race detector: `go test -race ./...`
+- Dependencies tidy: `go mod tidy`
+
+## Troubleshooting
+
+- `Conflict: terminated by other getUpdates request`: stop the other running instance; only one long-poller per bot token.
+- Permission errors in Docker: your host `./logs` and `./database` must be writable by the container user (see the compose `user:` note above).
+- “not authorised”: your Telegram user ID is not included in `TELEGRAM_ALLOWED_USERS`.
+
+## License
+
+GPLv3 (see `LICENSE`).
