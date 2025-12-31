@@ -21,12 +21,12 @@ var (
 )
 
 func InitLogger() {
-	err := os.MkdirAll("logs", os.ModePerm)
+	err := os.MkdirAll("logs", 0o755)
 	if err != nil {
 		log.Fatalf("Failed to create logs folder: %v", err)
 	}
 
-	logFile, err := os.OpenFile(filepath.Join("logs", AppName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	logFile, err := os.OpenFile(filepath.Join("logs", AppName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
 	}

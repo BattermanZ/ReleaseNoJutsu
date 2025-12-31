@@ -2,12 +2,9 @@ package db
 
 import (
 	"database/sql"
-	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 )
-
-var dbMutex sync.Mutex
 
 // DB wraps the sql.DB connection.
 type DB struct {

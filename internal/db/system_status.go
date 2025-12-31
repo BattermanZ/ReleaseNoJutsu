@@ -8,10 +8,8 @@ import (
 )
 
 func (db *DB) UpdateCronLastRun() {
-	dbMutex.Lock()
 	_, err := db.Exec("INSERT OR REPLACE INTO system_status (key, last_update) VALUES ('cron_last_run', ?)",
 		time.Now().UTC())
-	dbMutex.Unlock()
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Failed to update cron last run time: %v", err)
 	}

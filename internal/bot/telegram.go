@@ -74,7 +74,7 @@ func (b *Bot) Run(ctx context.Context) error {
 					b.sendUnauthorizedMessage(update.Message.Chat.ID)
 					continue
 				}
-				b.ensureUser(update.Message.Chat.ID)
+				b.ensureUser(update.Message.Chat.ID, update.Message.From.ID)
 				b.handleMessage(update.Message)
 			} else if update.CallbackQuery != nil {
 				if !b.isAuthorized(update.CallbackQuery.From.ID) {
@@ -84,7 +84,7 @@ func (b *Bot) Run(ctx context.Context) error {
 					continue
 				}
 				if update.CallbackQuery.Message != nil {
-					b.ensureUser(update.CallbackQuery.Message.Chat.ID)
+					b.ensureUser(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.From.ID)
 				}
 				b.handleCallbackQuery(update.CallbackQuery)
 			}
@@ -92,7 +92,12 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 }
 
-func (b *Bot) ensureUser(chatID int64) {
+func (b *Bot) ensureUser(chatID int64, fromUserID int64) {
+	// Hardening: only store private chat IDs for notifications.
+	// In private chats, Chat.ID equals the user ID.
+	if chatID <= 0 || chatID != fromUserID {
+		return
+	}
 	if err := b.db.EnsureUser(chatID); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed to ensure chat ID %d in users table: %v", chatID, err)
 	}

@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -19,15 +20,26 @@ type Scheduler struct {
 	Notifier notify.Notifier
 	Updater  *updater.Updater
 	cron     *cron.Cron
+
+	allowedUsers map[int64]struct{}
+	running      int32
 }
 
 // NewScheduler creates a new scheduler.
 
-func NewScheduler(db *db.DB, notifier notify.Notifier, upd *updater.Updater) *Scheduler {
+func NewScheduler(db *db.DB, notifier notify.Notifier, upd *updater.Updater, allowedUsers []int64) *Scheduler {
+	allow := make(map[int64]struct{}, len(allowedUsers))
+	for _, id := range allowedUsers {
+		if id <= 0 {
+			continue
+		}
+		allow[id] = struct{}{}
+	}
 	return &Scheduler{
-		DB:       db,
-		Notifier: notifier,
-		Updater:  upd,
+		DB:           db,
+		Notifier:     notifier,
+		Updater:      upd,
+		allowedUsers: allow,
 	}
 }
 
@@ -59,6 +71,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) performUpdate(ctx context.Context) {
+	if !atomic.CompareAndSwapInt32(&s.running, 0, 1) {
+		logger.LogMsg(logger.LogInfo, "Scheduled update skipped (previous run still in progress)")
+		return
+	}
+	defer atomic.StoreInt32(&s.running, 0)
+
 	logger.LogMsg(logger.LogInfo, "Starting scheduled update")
 
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -74,6 +92,16 @@ func (s *Scheduler) performUpdate(ctx context.Context) {
 		logger.LogMsg(logger.LogError, "Error querying user chat IDs: %v", err)
 		return
 	}
+	// Hardening: only send scheduled notifications to private chats belonging to allowed user IDs.
+	// (In private chats, Chat.ID == User.ID. Group/channel chat IDs are negative/unaligned and can leak info.)
+	filtered := users[:0]
+	for _, chatID := range users {
+		if _, ok := s.allowedUsers[chatID]; !ok {
+			continue
+		}
+		filtered = append(filtered, chatID)
+	}
+	users = filtered
 
 	for _, res := range results {
 		if res.Err != nil {

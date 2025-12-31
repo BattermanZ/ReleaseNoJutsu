@@ -58,7 +58,7 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	client.BaseURL = srv.URL
 
 	upd := updater.New(database, client, client)
-	s := NewScheduler(database, &recordingNotifier{}, upd)
+	s := NewScheduler(database, &recordingNotifier{}, upd, nil)
 
 	done := make(chan struct{}, 1)
 	go func() {
@@ -123,7 +123,7 @@ func TestPerformUpdate_SendsNotificationsToRegisteredChats(t *testing.T) {
 
 	n := &recordingNotifier{}
 	upd := updater.New(database, client, client)
-	s := NewScheduler(database, n, upd)
+	s := NewScheduler(database, n, upd, []int64{chatID})
 
 	s.performUpdate(context.Background())
 

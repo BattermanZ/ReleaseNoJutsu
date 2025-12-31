@@ -241,8 +241,8 @@ func (b *Bot) toggleMangaPlus(chatID int64, mangaID int) {
 	if next {
 		state = "enabled"
 	}
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ MANGA Plus is now *%s* for *%s*.", state, title))
-	msg.ParseMode = "Markdown"
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ MANGA Plus is now <b>%s</b> for <b>%s</b>.", html.EscapeString(state), html.EscapeString(title)))
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
 
@@ -265,8 +265,7 @@ func (b *Bot) handleRemoveManga(chatID int64, mangaID int) {
 		return
 	}
 
-	result := fmt.Sprintf("✅ *%s* has been successfully removed.", mangaTitle)
-	msg := tgbotapi.NewMessage(chatID, result)
-	msg.ParseMode = "Markdown"
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ <b>%s</b> has been successfully removed.", html.EscapeString(mangaTitle)))
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }

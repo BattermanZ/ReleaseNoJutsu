@@ -54,8 +54,10 @@ func (c *Client) FetchJSON(ctx context.Context, url string) ([]byte, error) {
 	for i := 0; i < maxRetries; i++ {
 		if i > 0 {
 			sleepDuration := time.Duration(1<<uint(i)) * time.Second
-			time.Sleep(sleepDuration)
 			logger.LogMsg(logger.LogInfo, "Retry %d/%d for URL: %s", i+1, maxRetries, url)
+			if err := sleepWithContext(ctx, sleepDuration); err != nil {
+				break
+			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -75,13 +77,24 @@ func (c *Client) FetchJSON(ctx context.Context, url string) ([]byte, error) {
 			}
 			continue
 		}
-		defer func() { _ = resp.Body.Close() }()
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("error reading response body: %v", readErr)
+			continue
+		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
 			lastErr = fmt.Errorf("API returned non-200 status code %d: %s", resp.StatusCode, string(body))
 			if resp.StatusCode == 429 { // Too Many Requests
-				logger.LogMsg(logger.LogWarning, "Rate limit hit, waiting before retry")
+				retryAfter := retryAfterDuration(resp.Header.Get("Retry-After"))
+				if retryAfter > 0 {
+					logger.LogMsg(logger.LogWarning, "Rate limit hit, retrying after %s", retryAfter)
+					_ = sleepWithContext(ctx, retryAfter)
+				} else {
+					logger.LogMsg(logger.LogWarning, "Rate limit hit, waiting before retry")
+				}
 			}
 			continue
 		}
@@ -90,12 +103,6 @@ func (c *Client) FetchJSON(ctx context.Context, url string) ([]byte, error) {
 			if rem, err := strconv.Atoi(remaining); err == nil && rem < 5 {
 				logger.LogMsg(logger.LogWarning, "Rate limit remaining is low: %d", rem)
 			}
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = fmt.Errorf("error reading response body: %v", err)
-			continue
 		}
 
 		var js map[string]interface{}
@@ -108,6 +115,39 @@ func (c *Client) FetchJSON(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("failed after %d retries. Last error: %v", maxRetries, lastErr)
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func retryAfterDuration(h string) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0
+	}
+	// Most commonly this is "seconds".
+	if sec, err := strconv.Atoi(h); err == nil && sec > 0 {
+		return time.Duration(sec) * time.Second
+	}
+	// It can also be an HTTP date.
+	if when, err := http.ParseTime(h); err == nil {
+		d := time.Until(when)
+		if d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 func (c *Client) GetManga(ctx context.Context, mangaID string) (*MangaResponse, error) {

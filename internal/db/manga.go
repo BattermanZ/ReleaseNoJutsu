@@ -7,9 +7,6 @@ import (
 )
 
 func (db *DB) AddManga(mangaID, title string) (int64, error) {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?)",
 		mangaID, title, 0, time.Now().UTC())
 	if err != nil {
@@ -19,9 +16,6 @@ func (db *DB) AddManga(mangaID, title string) (int64, error) {
 }
 
 func (db *DB) AddMangaWithMangaPlus(mangaID, title string, isMangaPlus bool) (int64, error) {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	val := 0
 	if isMangaPlus {
 		val = 1
@@ -43,9 +37,6 @@ func (db *DB) IsMangaPlus(mangaID int) (bool, error) {
 }
 
 func (db *DB) SetMangaPlus(mangaID int, isMangaPlus bool) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	val := 0
 	if isMangaPlus {
 		val = 1
@@ -70,18 +61,12 @@ func (db *DB) GetManga(mangaID int) (string, string, time.Time, time.Time, error
 }
 
 func (db *DB) UpdateMangaLastChecked(mangaID int) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	_, err := db.Exec("UPDATE manga SET last_checked = ? WHERE id = ?",
 		time.Now().UTC(), mangaID)
 	return err
 }
 
 func (db *DB) UpdateMangaLastSeenAt(mangaID int, seenAt time.Time) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	_, err := db.Exec("UPDATE manga SET last_seen_at = ? WHERE id = ?",
 		seenAt.UTC(), mangaID)
 	return err
@@ -203,9 +188,6 @@ func (db *DB) GetMangaTitle(mangaID int) (string, error) {
 }
 
 func (db *DB) DeleteManga(mangaID int) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	tx, err := db.Begin()
 	if err != nil {
 		return err

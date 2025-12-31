@@ -28,9 +28,6 @@ func (db *DB) ListUsers() ([]int64, error) {
 }
 
 func (db *DB) EnsureUser(chatID int64) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	_, err := db.Exec("INSERT OR IGNORE INTO users (chat_id) VALUES (?)", chatID)
 	return err
 }

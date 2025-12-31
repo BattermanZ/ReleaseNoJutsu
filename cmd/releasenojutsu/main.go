@@ -25,7 +25,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Fatalf("Error loading config: %v", err)
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("Invalid config: %v", err)
@@ -36,7 +36,7 @@ func main() {
 
 	// Ensure database folder exists
 	dbDir := filepath.Dir(cfg.DatabasePath)
-	err = os.MkdirAll(dbDir, os.ModePerm)
+	err = os.MkdirAll(dbDir, 0o755)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Failed to create database folder: %v", err)
 		return
@@ -79,7 +79,7 @@ func main() {
 
 	appBot := bot.New(api, database, mdUpdateClient, cfg, upd)
 
-	scheduler := cron.NewScheduler(database, notifier, upd)
+	scheduler := cron.NewScheduler(database, notifier, upd, cfg.AllowedUsers)
 	go scheduler.Run(ctx)
 
 	if err := appBot.Run(ctx); err != nil {

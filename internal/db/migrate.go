@@ -1,9 +1,6 @@
 package db
 
 func (db *DB) Migrate() error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	hasMangaLastSeenAt, err := db.hasColumn("manga", "last_seen_at")
 	if err != nil {
 		return err

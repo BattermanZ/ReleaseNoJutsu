@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"html"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,9 +22,9 @@ func (b *Bot) handleMarkChapterAsRead(chatID int64, mangaID int, chapterNumber s
 	}
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
-	result := fmt.Sprintf("✅ Updated!\nAll chapters up to Chapter %s of *%s* have been marked as read.", chapterNumber, mangaTitle)
+	result := fmt.Sprintf("✅ Updated!\nAll chapters up to Chapter <b>%s</b> of <b>%s</b> have been marked as read.", html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
 	msg := tgbotapi.NewMessage(chatID, result)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
 

@@ -84,6 +84,10 @@ It creates:
 
 Only users listed in `TELEGRAM_ALLOWED_USERS` can use the bot.
 
+Notes:
+- `TELEGRAM_ALLOWED_USERS` must be a comma-separated list of numeric user IDs (invalid entries cause startup to fail).
+- Scheduled notifications are sent only to **private chats** (not groups/channels) for allowed users, to avoid leaking updates to other chat members.
+
 Important: this app uses Telegram long-polling (`getUpdates`), so **only one instance** of the bot should run for a given token. If you run multiple containers/processes you’ll see `Conflict: terminated by other getUpdates request`.
 
 ## Using the bot

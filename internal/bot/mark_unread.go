@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"html"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,9 +22,9 @@ func (b *Bot) handleMarkChapterAsUnread(chatID int64, mangaID int, chapterNumber
 	}
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
-	result := fmt.Sprintf("✅ Chapter %s of *%s* is now marked as unread.", chapterNumber, mangaTitle)
+	result := fmt.Sprintf("✅ Chapter <b>%s</b> of <b>%s</b> is now marked as unread.", html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
 	msg := tgbotapi.NewMessage(chatID, result)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
 

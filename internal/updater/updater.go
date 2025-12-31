@@ -285,14 +285,14 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 
 func FormatNewChaptersMessage(mangaTitle string, newChapters []mangadex.ChapterInfo, unreadCount int, warnOnThreePlus bool) string {
 	var messageBuilder strings.Builder
-	messageBuilder.WriteString("📢 *New Chapter Alert!*\n\n")
-	messageBuilder.WriteString(fmt.Sprintf("*%s* has new chapters:\n", mangaTitle))
+	messageBuilder.WriteString("📢 New Chapter Alert!\n\n")
+	messageBuilder.WriteString(fmt.Sprintf("%s has new chapters:\n", mangaTitle))
 	for _, chapter := range newChapters {
-		messageBuilder.WriteString(fmt.Sprintf("• *Ch. %s*: %s\n", chapter.Number, chapter.Title))
+		messageBuilder.WriteString(fmt.Sprintf("• Ch. %s: %s\n", chapter.Number, chapter.Title))
 	}
-	messageBuilder.WriteString(fmt.Sprintf("\nYou now have *%d unread chapter(s)* for this series.\n", unreadCount))
+	messageBuilder.WriteString(fmt.Sprintf("\nYou now have %d unread chapter(s) for this series.\n", unreadCount))
 	if warnOnThreePlus && unreadCount >= 3 {
-		messageBuilder.WriteString("\n⚠️ *Warning: You have 3 or more unread chapters for this manga!*")
+		messageBuilder.WriteString("\n⚠️ Warning: you have 3 or more unread chapters for this manga!")
 	}
 	messageBuilder.WriteString("\nUse /start to mark chapters as read or explore other options.")
 	return messageBuilder.String()

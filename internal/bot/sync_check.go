@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"html"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -15,8 +16,8 @@ func (b *Bot) handleSyncAllChapters(chatID int64, mangaID int) {
 	b.logAction(chatID, "Sync all chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
-	start := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Syncing all chapters for *%s* (this can take a bit)...", mangaTitle))
-	start.ParseMode = "Markdown"
+	start := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Syncing all chapters for <b>%s</b> (this can take a bit)...", html.EscapeString(mangaTitle)))
+	start.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(start)
 
 	go func() {
@@ -26,15 +27,15 @@ func (b *Bot) handleSyncAllChapters(chatID int64, mangaID int) {
 		synced, _, err := b.updater.SyncAll(ctx, mangaID)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "SyncAll failed for manga %d: %v", mangaID, err)
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for *%s*.", mangaTitle))
-			msg.ParseMode = "Markdown"
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for <b>%s</b>.", html.EscapeString(mangaTitle)))
+			msg.ParseMode = "HTML"
 			b.sendMessageWithMainMenuButton(msg)
 			return
 		}
 
 		unread, _ := b.db.CountUnreadChapters(mangaID)
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for *%s*.\nImported/updated %d chapter entries.\nUnread chapters: %d.", mangaTitle, synced, unread))
-		msg.ParseMode = "Markdown"
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for <b>%s</b>.\nImported/updated %d chapter entries.\nUnread chapters: %d.", html.EscapeString(mangaTitle), synced, unread))
+		msg.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(msg)
 	}()
 }
@@ -53,8 +54,8 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	}
 
 	if len(res.NewChapters) == 0 {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for *%s*.", res.Title))
-		msg.ParseMode = "Markdown"
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for <b>%s</b>.", html.EscapeString(res.Title)))
+		msg.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}

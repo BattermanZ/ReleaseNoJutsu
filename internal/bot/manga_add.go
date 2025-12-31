@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -51,8 +52,8 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 			tgbotapi.NewInlineKeyboardButtonData("❌ No", fmt.Sprintf("add_confirm:%s:0", mangaID)),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📚 *%s*\n\nIs this a *MANGA Plus* manga?\n\nThis controls whether you get the “3+ unread chapters” warning.", title))
-	msg.ParseMode = "Markdown"
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📚 <b>%s</b>\n\nIs this a <b>MANGA Plus</b> manga?\n\nThis controls whether you get the “3+ unread chapters” warning.", html.EscapeString(title)))
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -99,8 +100,8 @@ func (b *Bot) confirmAddManga(chatID int64, mangaDexID string, isMangaPlus bool)
 	if isMangaPlus {
 		mangaPlusLabel = "yes"
 	}
-	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Added *%s*.\nMANGA Plus: *%s*\n\n🔄 Now syncing all chapters from MangaDex (this can take a bit)...", title, mangaPlusLabel))
-	startMsg.ParseMode = "Markdown"
+	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Added <b>%s</b>.\nMANGA Plus: <b>%s</b>\n\n🔄 Now syncing all chapters from MangaDex (this can take a bit)...", html.EscapeString(title), html.EscapeString(mangaPlusLabel)))
+	startMsg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(startMsg)
 
 	go func() {
@@ -110,15 +111,15 @@ func (b *Bot) confirmAddManga(chatID int64, mangaDexID string, isMangaPlus bool)
 		synced, _, err := b.updater.SyncAll(syncCtx, int(mangaDBID))
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error syncing chapters for %s: %v", title, err)
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for *%s*.\n\nYou can try again from the main menu: “Sync all chapters”.", title))
-			msg.ParseMode = "Markdown"
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for <b>%s</b>.\n\nYou can try again from the main menu: “Sync all chapters”.", html.EscapeString(title)))
+			msg.ParseMode = "HTML"
 			b.sendMessageWithMainMenuButton(msg)
 			return
 		}
 
 		unread, _ := b.db.CountUnreadChapters(int(mangaDBID))
-		done := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for *%s*.\nImported/updated %d chapter entries.\nUnread chapters: %d.\n\nUse “Mark chapter as read” to set your progress.", title, synced, unread))
-		done.ParseMode = "Markdown"
+		done := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for <b>%s</b>.\nImported/updated %d chapter entries.\nUnread chapters: %d.\n\nUse “Mark chapter as read” to set your progress.", html.EscapeString(title), synced, unread))
+		done.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(done)
 	}()
 }

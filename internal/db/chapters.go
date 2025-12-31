@@ -9,9 +9,6 @@ import (
 )
 
 func (db *DB) AddChapter(mangaID int64, chapterNumber, title string, publishedAt, readableAt, createdAt, updatedAt time.Time) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	_, err := db.Exec(`
 		INSERT INTO chapters (manga_id, chapter_number, title, published_at, readable_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -280,13 +277,10 @@ func (db *DB) CountUnreadChapters(mangaID int) (int, error) {
 }
 
 func (db *DB) RecalculateUnreadCount(mangaID int) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
-	return db.recalculateUnreadCountLocked(mangaID)
+	return db.recalculateUnreadCount(mangaID)
 }
 
-func (db *DB) recalculateUnreadCountLocked(mangaID int) error {
+func (db *DB) recalculateUnreadCount(mangaID int) error {
 	_, err := db.Exec(`
 		UPDATE manga
 		SET unread_count = (
@@ -304,9 +298,6 @@ func (db *DB) recalculateUnreadCountLocked(mangaID int) error {
 }
 
 func (db *DB) MarkChapterAsRead(mangaID int, chapterNumber string) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	num, err := strconv.ParseFloat(strings.TrimSpace(chapterNumber), 64)
 	if err != nil {
 		// Non-numeric chapters (extras) are not part of numeric progress tracking.
@@ -324,13 +315,10 @@ func (db *DB) MarkChapterAsRead(mangaID int, chapterNumber string) error {
 	`, num, num, num, mangaID); err != nil {
 		return err
 	}
-	return db.recalculateUnreadCountLocked(mangaID)
+	return db.recalculateUnreadCount(mangaID)
 }
 
 func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
 	num, err := strconv.ParseFloat(strings.TrimSpace(chapterNumber), 64)
 	if err != nil {
 		// Non-numeric chapters (extras) are not part of numeric progress tracking.
@@ -361,7 +349,7 @@ func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
 		}
 	}
 
-	return db.recalculateUnreadCountLocked(mangaID)
+	return db.recalculateUnreadCount(mangaID)
 }
 
 func (db *DB) GetLastReadChapter(mangaID int) (chapterNumber string, title string, ok bool, err error) {

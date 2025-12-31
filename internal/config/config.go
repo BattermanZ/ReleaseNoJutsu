@@ -31,10 +31,15 @@ func Load() (*Config, error) {
 	allowedUserIDs := strings.Split(allowedUsersStr, ",")
 	allowedUsers := make([]int64, 0, len(allowedUserIDs))
 	for _, userID := range allowedUserIDs {
-		id, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
-		if err == nil {
-			allowedUsers = append(allowedUsers, id)
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			continue
 		}
+		id, err := strconv.ParseInt(userID, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("invalid TELEGRAM_ALLOWED_USERS entry: %q", userID)
+		}
+		allowedUsers = append(allowedUsers, id)
 	}
 
 	return &Config{

@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -9,7 +10,11 @@ import (
 )
 
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
-	b.logAction(message.From.ID, "Received message", message.Text)
+	details := fmt.Sprintf("chat_id=%d is_command=%t len=%d", message.Chat.ID, message.IsCommand(), len(message.Text))
+	if message.IsCommand() {
+		details += fmt.Sprintf(" cmd=%s", message.Command())
+	}
+	b.logAction(message.From.ID, "Received message", details)
 
 	if message.IsCommand() {
 		switch message.Command() {
@@ -49,7 +54,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 }
 
 func (b *Bot) handleReply(message *tgbotapi.Message) {
-	b.logAction(message.From.ID, "Received reply", message.Text)
+	b.logAction(message.From.ID, "Received reply", fmt.Sprintf("chat_id=%d len=%d", message.Chat.ID, len(message.Text)))
 
 	replyTo := message.ReplyToMessage.Text
 	replyText := strings.TrimSpace(message.Text)
