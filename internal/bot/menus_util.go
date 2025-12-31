@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"html"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,6 +22,20 @@ func (b *Bot) lastReadLine(mangaID int) string {
 		return fmt.Sprintf("Last read: Ch. %s", lastReadNum)
 	}
 	return fmt.Sprintf("Last read: Ch. %s — %s", lastReadNum, lastReadTitle)
+}
+
+func (b *Bot) lastReadLineHTML(mangaID int) string {
+	lastReadNum, lastReadTitle, hasLastRead, err := b.db.GetLastReadChapter(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting last read chapter: %v", err)
+	}
+	if !hasLastRead {
+		return "Last read: <b>(none)</b>"
+	}
+	if strings.TrimSpace(lastReadTitle) == "" {
+		return fmt.Sprintf("Last read: <b>Ch. %s</b>", html.EscapeString(lastReadNum))
+	}
+	return fmt.Sprintf("Last read: <b>Ch. %s</b> — %s", html.EscapeString(lastReadNum), html.EscapeString(lastReadTitle))
 }
 
 func bucketLabel(start, bucketSize int) string {

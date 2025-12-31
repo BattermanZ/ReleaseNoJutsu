@@ -352,6 +352,32 @@ func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
 	return db.recalculateUnreadCount(mangaID)
 }
 
+func (db *DB) MarkAllChaptersAsRead(mangaID int) error {
+	var max sql.NullFloat64
+	if err := db.QueryRow(`
+		SELECT MAX(CAST(chapter_number AS REAL))
+		FROM chapters
+		WHERE manga_id = ?
+		  AND chapter_number GLOB '[0-9]*'
+		  AND chapter_number NOT GLOB '*[^0-9.]*'
+		  AND chapter_number NOT GLOB '*.*.*'
+	`, mangaID).Scan(&max); err != nil {
+		return err
+	}
+
+	if max.Valid {
+		if _, err := db.Exec("UPDATE manga SET last_read_number = ? WHERE id = ?", max.Float64, mangaID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := db.Exec("UPDATE manga SET last_read_number = NULL WHERE id = ?", mangaID); err != nil {
+			return err
+		}
+	}
+
+	return db.recalculateUnreadCount(mangaID)
+}
+
 func (db *DB) GetLastReadChapter(mangaID int) (chapterNumber string, title string, ok bool, err error) {
 	var num, t string
 	err = db.QueryRow(`

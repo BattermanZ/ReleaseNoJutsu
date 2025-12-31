@@ -162,6 +162,58 @@ func TestGetLastReadChapterAndListUnreadChapters(t *testing.T) {
 	}
 }
 
+func TestMarkAllChaptersAsRead(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
+
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	if err != nil {
+		t.Fatalf("AddManga(): %v", err)
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := database.AddChapter(mangaID, "1", "One", ts, ts, ts, ts); err != nil {
+		t.Fatalf("AddChapter(1): %v", err)
+	}
+	if err := database.AddChapter(mangaID, "2.5", "TwoPointFive", ts, ts, ts, ts); err != nil {
+		t.Fatalf("AddChapter(2.5): %v", err)
+	}
+	if err := database.AddChapter(mangaID, "3", "Three", ts, ts, ts, ts); err != nil {
+		t.Fatalf("AddChapter(3): %v", err)
+	}
+
+	if err := database.MarkAllChaptersAsRead(int(mangaID)); err != nil {
+		t.Fatalf("MarkAllChaptersAsRead(): %v", err)
+	}
+
+	unread, err := database.CountUnreadChapters(int(mangaID))
+	if err != nil {
+		t.Fatalf("CountUnreadChapters(): %v", err)
+	}
+	if unread != 0 {
+		t.Fatalf("unread=%d, want 0", unread)
+	}
+
+	num, title, ok, err := database.GetLastReadChapter(int(mangaID))
+	if err != nil {
+		t.Fatalf("GetLastReadChapter(): %v", err)
+	}
+	if !ok || num != "3" || title != "Three" {
+		t.Fatalf("GetLastReadChapter()=(%q,%q,%v), want (3,Three,true)", num, title, ok)
+	}
+}
+
 func TestListUnreadBucketStartsAndRangeListing(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := New(dbPath)

@@ -26,9 +26,7 @@ func (b *Bot) handleListManga(chatID int64) {
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var messageBuilder strings.Builder
-	messageBuilder.WriteString(`📚 *Your Followed Manga:*
-
-`) // Changed to backticks
+	messageBuilder.WriteString("📚 <b>Your Followed Manga</b>\n\n")
 	count := 0
 	for rows.Next() {
 		var id int
@@ -50,35 +48,23 @@ func (b *Bot) handleListManga(chatID int64) {
 			displayTitle = "⭐ " + displayTitle
 		}
 
-		// Manga title row
+		label := fmt.Sprintf("%d. %s", count, displayTitle)
+		if unreadCount > 0 {
+			label = fmt.Sprintf("%s (%d unread)", label, unreadCount)
+		}
 		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d. %s", count, displayTitle), "ignore"), // "ignore" as a placeholder, no action on title click
-		))
-
-		// Action buttons row
-		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Check New", fmt.Sprintf("manga_action:%d:check_new", id)),
-			tgbotapi.NewInlineKeyboardButtonData("✅ Mark Read", fmt.Sprintf("manga_action:%d:mark_read", id)),
-			tgbotapi.NewInlineKeyboardButtonData("↩️ Mark Unread", fmt.Sprintf("manga_action:%d:list_read", id)),
-		))
-
-		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("ℹ️ Details", fmt.Sprintf("manga_action:%d:details", id)),
-			tgbotapi.NewInlineKeyboardButtonData("⭐ Toggle MANGA Plus", fmt.Sprintf("manga_action:%d:toggle_plus", id)),
-		))
-		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", fmt.Sprintf("manga_action:%d:remove_manga", id)),
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("manga_action:%d:menu", id)),
 		))
 	}
 
 	if count == 0 {
-		messageBuilder.WriteString("You’re not following any manga yet. Choose 'Add manga' to start tracking a series!")
+		messageBuilder.WriteString("You’re not following any manga yet. Choose “Add manga” to start tracking a series!")
 	} else {
-		messageBuilder.WriteString(fmt.Sprintf("Total: %d manga", count))
+		messageBuilder.WriteString(fmt.Sprintf("Total: <b>%d</b>", count))
 	}
 
 	msg := tgbotapi.NewMessage(chatID, messageBuilder.String())
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -149,10 +135,16 @@ Choose a manga to proceed.`
 
 func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string) {
 	switch nextAction {
+	case "menu":
+		b.sendMangaActionMenu(chatID, mangaID)
 	case "check_new":
 		b.handleCheckNewChapters(chatID, mangaID)
 	case "mark_read":
 		b.sendMarkReadStartMenu(chatID, mangaID)
+	case "mark_all_read":
+		b.sendMarkAllReadConfirm(chatID, mangaID)
+	case "mark_all_read_yes":
+		b.handleMarkAllRead(chatID, mangaID)
 	case "sync_all":
 		b.handleSyncAllChapters(chatID, mangaID)
 	case "list_read":
@@ -162,10 +154,119 @@ func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string)
 	case "toggle_plus":
 		b.toggleMangaPlus(chatID, mangaID)
 	case "remove_manga":
+		b.sendRemoveMangaConfirm(chatID, mangaID)
+	case "remove_manga_yes":
 		b.handleRemoveManga(chatID, mangaID)
 	default:
 		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
 	}
+}
+
+func (b *Bot) sendMangaActionMenu(chatID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not load that manga right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+	unread, _ := b.db.CountUnreadChapters(mangaID)
+
+	detailsLine := b.lastReadLineHTML(mangaID)
+
+	var bld strings.Builder
+	bld.WriteString("📖 <b>")
+	bld.WriteString(html.EscapeString(title))
+	bld.WriteString("</b>\n\n")
+	bld.WriteString(detailsLine)
+	bld.WriteString("\n")
+	bld.WriteString(fmt.Sprintf("Unread: <b>%d</b>\n\n", unread))
+	bld.WriteString("Choose an action:")
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Check New", fmt.Sprintf("manga_action:%d:check_new", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Sync All", fmt.Sprintf("manga_action:%d:sync_all", mangaID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Mark Read", fmt.Sprintf("manga_action:%d:mark_read", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Mark ALL Read", fmt.Sprintf("manga_action:%d:mark_all_read", mangaID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Mark Unread", fmt.Sprintf("manga_action:%d:list_read", mangaID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("ℹ️ Details", fmt.Sprintf("manga_action:%d:details", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("⭐ Toggle MANGA Plus", fmt.Sprintf("manga_action:%d:toggle_plus", mangaID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", fmt.Sprintf("manga_action:%d:remove_manga", mangaID)),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, bld.String())
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendRemoveMangaConfirm(chatID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga details for removal. Please try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🗑️ Remove <b>%s</b>?\n\nThis will delete the manga and all stored chapters from your local database.", html.EscapeString(title)))
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Yes, delete", fmt.Sprintf("manga_action:%d:remove_manga_yes", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", fmt.Sprintf("manga_action:%d:menu", mangaID)),
+		),
+	)
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) sendMarkAllReadConfirm(chatID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not load that manga right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Mark <b>all chapters</b> as read for <b>%s</b>?\n\nThis will set your progress to the latest numeric chapter.", html.EscapeString(title)))
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Yes", fmt.Sprintf("manga_action:%d:mark_all_read_yes", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", fmt.Sprintf("manga_action:%d:menu", mangaID)),
+		),
+	)
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) handleMarkAllRead(chatID int64, mangaID int) {
+	b.logAction(chatID, "Mark all chapters as read", fmt.Sprintf("Manga ID: %d", mangaID))
+
+	if err := b.db.MarkAllChaptersAsRead(mangaID); err != nil {
+		logger.LogMsg(logger.LogError, "Error marking all chapters as read: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not update your progress right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	title, _ := b.db.GetMangaTitle(mangaID)
+	lastReadLine := b.lastReadLineHTML(mangaID)
+	unread, _ := b.db.CountUnreadChapters(mangaID)
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Updated <b>%s</b>.\n\n%s\nUnread: <b>%d</b>", html.EscapeString(title), lastReadLine, unread))
+	msg.ParseMode = "HTML"
+	b.sendMessageWithMainMenuButton(msg)
 }
 
 func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
@@ -215,6 +316,9 @@ func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(toggleLabel, fmt.Sprintf("manga_action:%d:toggle_plus", mangaID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Mark ALL Read", fmt.Sprintf("manga_action:%d:mark_all_read", mangaID)),
 		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
