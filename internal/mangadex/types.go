@@ -16,6 +16,7 @@ type MangaResponse struct {
 type ChapterAttributes struct {
 	Chapter     string    `json:"chapter"`
 	Title       string    `json:"title"`
+	Language    string    `json:"translatedLanguage"`
 	PublishedAt time.Time `json:"publishAt"`
 	ReadableAt  time.Time `json:"readableAt"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -23,13 +24,17 @@ type ChapterAttributes struct {
 }
 
 type Chapter struct {
+	ID         string            `json:"id"`
 	Attributes ChapterAttributes `json:"attributes"`
 }
 
 // ChapterFeedResponse represents the response for a manga's chapter feed.
 
 type ChapterFeedResponse struct {
-	Data []Chapter `json:"data"`
+	Data   []Chapter `json:"data"`
+	Limit  int       `json:"limit"`
+	Offset int       `json:"offset"`
+	Total  int       `json:"total"`
 }
 
 // ChapterInfo holds simplified chapter information.

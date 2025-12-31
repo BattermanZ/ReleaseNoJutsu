@@ -157,9 +157,9 @@ sequenceDiagram
   B->>MD: GET /manga/{uuid}
   MD-->>B: manga metadata (title)
   B->>DB: INSERT manga(mangadex_id,title,last_checked=now)
-  B->>MD: GET /manga/{uuid}/feed?...
-  MD-->>B: chapter feed
-  B->>DB: INSERT OR REPLACE chapters (latest N)
+  B->>MD: GET /manga/{uuid}/feed?limit=100&offset=0 (paged)
+  MD-->>B: chapter feed pages
+  B->>DB: INSERT/UPDATE chapters (all pages)
   B->>T: confirmation message
 ```
 
@@ -179,27 +179,35 @@ sequenceDiagram
   T->>B: callback "select_manga:manga_id:check_new"
   B->>DB: SELECT manga(last_checked, mangadex_id, title)
   B->>MD: GET /manga/{uuid}/feed?...
-  MD-->>B: chapter feed (publishAt)
-  B->>DB: INSERT chapters newer than last_checked
-  B->>DB: UPDATE manga(unread_count += N, last_checked = now)
+  MD-->>B: chapter feed (createdAt/readableAt/publishAt)
+  B->>DB: INSERT chapters newer than last_seen_at
+  B->>DB: UPDATE manga(last_seen_at=maxSeenAt, last_checked=now)
+  B->>DB: Recalculate unread_count
   B->>T: show results (or "no new chapters")
 ```
 
 ### Mark Read / Unread (Progress Tracking)
 
-Progress is stored per chapter as `chapters.is_read`.
+Progress is stored per manga as a numeric watermark: `manga.last_read_number` (the highest chapter number you consider read).
+
+Unread chapters are derived by comparing numeric chapter numbers (`CAST(chapters.chapter_number AS REAL)`) against `manga.last_read_number`. The per-manga `unread_count` is maintained as a cached summary of that query.
 
 ```mermaid
 flowchart TD
-  A[Pick manga] --> B[Show unread chapters - top 3]
-  B -->|pick chapter X| C[Mark up to X as read]
-  D[Pick manga] --> E[Show read chapters - top 3]
-  E -->|pick chapter X| F[Mark X as unread]
+  M1[Pick manga] --> R1[Pick range 1000s]
+  R1 --> R2[Pick range 100s]
+  R2 --> R3[Pick range 10s]
+  R3 --> CH[Pick chapter X]
+  CH --> SET[Set last_read_number to X]
+
+  M2[Pick manga] --> READ[Show read chapters]
+  READ --> UN[Pick chapter X]
+  UN --> UNSET[Set last_read_number to previous]
 ```
 
 ## Scheduled Update + Notifications
 
-The scheduler periodically scans all tracked manga and compares each chapter’s `publishAt` against `manga.last_checked`.
+The scheduler periodically scans all tracked manga and compares each chapter’s `seenAt` timestamp against `manga.last_seen_at`.
 
 ```mermaid
 sequenceDiagram
@@ -212,8 +220,9 @@ sequenceDiagram
   loop for each manga
     SCH->>MD: GET /manga/{uuid}/feed?...
     MD-->>SCH: chapter feed
-    SCH->>DB: INSERT chapters newer than last_checked
-    SCH->>DB: UPDATE manga(last_checked=now, unread_count+=N)
+    SCH->>DB: INSERT chapters newer than last_seen_at
+    SCH->>DB: UPDATE manga(last_seen_at=maxSeenAt, last_checked=now)
+    SCH->>DB: Recalculate unread_count
     alt N > 0
       SCH->>DB: SELECT users(chat_id)
       loop for each chat_id
@@ -236,6 +245,9 @@ erDiagram
     string mangadex_id "UUID, unique"
     string title
     datetime last_checked
+    datetime last_seen_at
+    datetime last_read_at
+    float last_read_number
     int unread_count
   }
 
@@ -245,7 +257,9 @@ erDiagram
     string chapter_number
     string title
     datetime published_at
-    boolean is_read
+    datetime readable_at
+    datetime created_at
+    datetime updated_at
   }
 
   users {

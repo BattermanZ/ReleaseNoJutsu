@@ -23,12 +23,13 @@ type Store interface {
 }
 
 type MangaDex interface {
-	GetChapterFeed(ctx context.Context, mangaID string) (*mangadex.ChapterFeedResponse, error)
+	GetChapterFeedPage(ctx context.Context, mangaID string, limit, offset int) (*mangadex.ChapterFeedResponse, error)
 }
 
 type Updater struct {
-	store    Store
-	mangadex MangaDex
+	store        Store
+	mangadex     MangaDex
+	syncMangaDex MangaDex
 }
 
 type Result struct {
@@ -41,11 +42,106 @@ type Result struct {
 	Err         error
 }
 
-func New(store Store, md MangaDex) *Updater {
+func New(store Store, md MangaDex, syncMD MangaDex) *Updater {
 	return &Updater{
-		store:    store,
-		mangadex: md,
+		store:        store,
+		mangadex:     md,
+		syncMangaDex: syncMD,
 	}
+}
+
+func (u *Updater) SyncAll(ctx context.Context, mangaID int) (synced int, maxSeenAt time.Time, err error) {
+	mangaDexID, _, _, currentLastSeenAt, err := u.store.GetManga(mangaID)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+
+	const pageLimit = 500
+	offset := 0
+	maxSeenAt = currentLastSeenAt
+	// Keep only one entry per chapter key to avoid duplicates across languages/groups.
+	seen := make(map[string]mangadex.Chapter, 512)
+
+	for {
+		feed, err := u.syncMangaDex.GetChapterFeedPage(ctx, mangaDexID, pageLimit, offset)
+		if err != nil {
+			return synced, maxSeenAt, err
+		}
+		if len(feed.Data) == 0 {
+			break
+		}
+
+		for _, chapter := range feed.Data {
+			seenAt := chapterSeenAt(chapter.Attributes).UTC()
+			if maxSeenAt.Before(seenAt) {
+				maxSeenAt = seenAt
+			}
+
+			key := chapterKey(chapter)
+			if cur, ok := seen[key]; ok {
+				// Prefer French titles, then English, then anything else.
+				if chapterLanguageScore(chapter) < chapterLanguageScore(cur) {
+					seen[key] = chapter
+				} else if chapterLanguageScore(chapter) == chapterLanguageScore(cur) {
+					// Tie-breaker: prefer non-empty titles.
+					if strings.TrimSpace(chapter.Attributes.Title) != "" && strings.TrimSpace(cur.Attributes.Title) == "" {
+						seen[key] = chapter
+					}
+				}
+				continue
+			}
+			seen[key] = chapter
+		}
+
+		// Stop if we reached the end of the feed.
+		if feed.Total > 0 && offset+len(feed.Data) >= feed.Total {
+			break
+		}
+		if len(feed.Data) < pageLimit {
+			break
+		}
+		offset += len(feed.Data)
+	}
+
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		chapter := seen[key]
+		publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
+		readableAtUTC := chapter.Attributes.ReadableAt.UTC()
+		if chapter.Attributes.ReadableAt.IsZero() {
+			readableAtUTC = publishedAtUTC
+		}
+		createdAtUTC := chapter.Attributes.CreatedAt.UTC()
+		if chapter.Attributes.CreatedAt.IsZero() {
+			createdAtUTC = readableAtUTC
+		}
+		updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
+		if chapter.Attributes.UpdatedAt.IsZero() {
+			updatedAtUTC = createdAtUTC
+		}
+
+		title := ""
+		if lang := strings.ToLower(strings.TrimSpace(chapter.Attributes.Language)); lang == "fr" || lang == "en" {
+			title = chapter.Attributes.Title
+		}
+		if err := u.store.AddChapter(int64(mangaID), key, title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC); err != nil {
+			return synced, maxSeenAt, err
+		}
+		synced++
+	}
+
+	_ = u.store.UpdateMangaLastChecked(mangaID)
+	if currentLastSeenAt.IsZero() || maxSeenAt.After(currentLastSeenAt) {
+		_ = u.store.UpdateMangaLastSeenAt(mangaID, maxSeenAt)
+	}
+	_ = u.store.RecalculateUnreadCount(mangaID)
+
+	return synced, maxSeenAt, nil
 }
 
 func (u *Updater) UpdateAll(ctx context.Context) ([]Result, error) {
@@ -81,63 +177,89 @@ func (u *Updater) UpdateOne(ctx context.Context, mangaID int) (Result, error) {
 }
 
 func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, title string, lastSeenAt time.Time) (Result, error) {
-	feed, err := u.mangadex.GetChapterFeed(ctx, mangaDexID)
-	if err != nil {
-		return Result{}, err
+	const pageLimit = 100
+
+	type chapterWithSeenAt struct {
+		info   mangadex.ChapterInfo
+		seenAt time.Time
 	}
 
-	if len(feed.Data) == 0 {
-		_ = u.store.UpdateMangaLastChecked(mangaID)
-		unread, _ := u.store.CountUnreadChapters(mangaID)
-		return Result{
-			MangaID:     mangaID,
-			MangaDexID:  mangaDexID,
-			Title:       title,
-			NewChapters: nil,
-			UnreadCount: unread,
-			LastSeenAt:  lastSeenAt,
-		}, nil
-	}
-
-	sort.Slice(feed.Data, func(i, j int) bool {
-		return chapterSeenAt(feed.Data[i].Attributes).After(chapterSeenAt(feed.Data[j].Attributes))
-	})
-
-	var newChapters []mangadex.ChapterInfo
+	var newChaptersWithTimes []chapterWithSeenAt
 	maxSeenAt := lastSeenAt
 
-	for _, chapter := range feed.Data {
-		seenAt := chapterSeenAt(chapter.Attributes).UTC()
-		if maxSeenAt.Before(seenAt) {
-			maxSeenAt = seenAt
-		}
-
-		if !seenAt.After(lastSeenAt.UTC()) {
-			continue
-		}
-
-		publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
-		readableAtUTC := chapter.Attributes.ReadableAt.UTC()
-		if chapter.Attributes.ReadableAt.IsZero() {
-			readableAtUTC = publishedAtUTC
-		}
-		createdAtUTC := chapter.Attributes.CreatedAt.UTC()
-		if chapter.Attributes.CreatedAt.IsZero() {
-			createdAtUTC = readableAtUTC
-		}
-		updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
-		if chapter.Attributes.UpdatedAt.IsZero() {
-			updatedAtUTC = createdAtUTC
-		}
-
-		if err := u.store.AddChapter(int64(mangaID), chapter.Attributes.Chapter, chapter.Attributes.Title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC); err != nil {
+	offset := 0
+	for {
+		feed, err := u.mangadex.GetChapterFeedPage(ctx, mangaDexID, pageLimit, offset)
+		if err != nil {
 			return Result{}, err
 		}
 
-		newChapters = append(newChapters, mangadex.ChapterInfo{
-			Number: chapter.Attributes.Chapter,
-			Title:  chapter.Attributes.Title,
-		})
+		if len(feed.Data) == 0 {
+			break
+		}
+
+		pageHasAnyNew := false
+		for _, chapter := range feed.Data {
+			seenAt := chapterSeenAt(chapter.Attributes).UTC()
+			if maxSeenAt.Before(seenAt) {
+				maxSeenAt = seenAt
+			}
+
+			if !seenAt.After(lastSeenAt.UTC()) {
+				continue
+			}
+			pageHasAnyNew = true
+
+			publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
+			readableAtUTC := chapter.Attributes.ReadableAt.UTC()
+			if chapter.Attributes.ReadableAt.IsZero() {
+				readableAtUTC = publishedAtUTC
+			}
+			createdAtUTC := chapter.Attributes.CreatedAt.UTC()
+			if chapter.Attributes.CreatedAt.IsZero() {
+				createdAtUTC = readableAtUTC
+			}
+			updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
+			if chapter.Attributes.UpdatedAt.IsZero() {
+				updatedAtUTC = createdAtUTC
+			}
+
+			key := chapterKey(chapter)
+			if err := u.store.AddChapter(int64(mangaID), key, chapter.Attributes.Title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC); err != nil {
+				return Result{}, err
+			}
+
+			newChaptersWithTimes = append(newChaptersWithTimes, chapterWithSeenAt{
+				info: mangadex.ChapterInfo{
+					Number: displayChapterNumber(chapter),
+					Title:  chapter.Attributes.Title,
+				},
+				seenAt: seenAt,
+			})
+		}
+
+		if !pageHasAnyNew {
+			// We reached chapters at/before the watermark; later pages are older.
+			break
+		}
+
+		// Stop if we reached the end of the feed.
+		if feed.Total > 0 && offset+len(feed.Data) >= feed.Total {
+			break
+		}
+		if len(feed.Data) < pageLimit {
+			break
+		}
+
+		offset += len(feed.Data)
+	}
+
+	sort.Slice(newChaptersWithTimes, func(i, j int) bool {
+		return newChaptersWithTimes[i].seenAt.After(newChaptersWithTimes[j].seenAt)
+	})
+	newChapters := make([]mangadex.ChapterInfo, 0, len(newChaptersWithTimes))
+	for _, c := range newChaptersWithTimes {
+		newChapters = append(newChapters, c.info)
 	}
 
 	_ = u.store.UpdateMangaLastChecked(mangaID)
@@ -184,4 +306,39 @@ func chapterSeenAt(attrs mangadex.ChapterAttributes) time.Time {
 		return attrs.ReadableAt
 	}
 	return attrs.PublishedAt
+}
+
+func chapterKey(ch mangadex.Chapter) string {
+	num := strings.TrimSpace(ch.Attributes.Chapter)
+	if num != "" {
+		return num
+	}
+	// Some entries (extras/oneshots) may not have a chapter number. Use the MangaDex chapter ID
+	// to keep the row unique in our schema.
+	if strings.TrimSpace(ch.ID) != "" {
+		return "extra:" + ch.ID
+	}
+	return "extra:unknown"
+}
+
+func displayChapterNumber(ch mangadex.Chapter) string {
+	num := strings.TrimSpace(ch.Attributes.Chapter)
+	if num != "" {
+		return num
+	}
+	return "Extra"
+}
+
+func chapterLanguageScore(ch mangadex.Chapter) int {
+	lang := strings.ToLower(strings.TrimSpace(ch.Attributes.Language))
+	if lang == "fr" {
+		return 0
+	}
+	if lang == "en" {
+		return 1
+	}
+	if lang == "" {
+		return 3
+	}
+	return 2
 }

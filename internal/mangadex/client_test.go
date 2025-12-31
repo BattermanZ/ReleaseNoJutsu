@@ -79,6 +79,9 @@ func TestGetChapterFeed_UsesClientBaseURLAndParsesPublishAt(t *testing.T) {
 		if q.Get("limit") != "100" {
 			t.Fatalf("limit = %q, want 100", q.Get("limit"))
 		}
+		if q.Get("offset") != "0" {
+			t.Fatalf("offset = %q, want 0", q.Get("offset"))
+		}
 
 		resp := ChapterFeedResponse{
 			Data: []Chapter{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +22,9 @@ const (
 // Client is a client for the MangaDex API.
 
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL             string
+	HTTPClient          *http.Client
+	TranslatedLanguages []string
 }
 
 // NewClient creates a new MangaDex API client.
@@ -33,7 +35,14 @@ func NewClient() *Client {
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		TranslatedLanguages: []string{"en"},
 	}
+}
+
+func NewClientWithLanguages(langs []string) *Client {
+	c := NewClient()
+	c.TranslatedLanguages = langs
+	return c
 }
 
 // FetchJSON fetches JSON data from the given URL.
@@ -117,7 +126,35 @@ func (c *Client) GetManga(ctx context.Context, mangaID string) (*MangaResponse, 
 }
 
 func (c *Client) GetChapterFeed(ctx context.Context, mangaID string) (*ChapterFeedResponse, error) {
-	chapterURL := fmt.Sprintf("%s/manga/%s/feed?order[createdAt]=desc&translatedLanguage[]=en&limit=100", c.BaseURL, mangaID)
+	return c.GetChapterFeedPage(ctx, mangaID, 100, 0)
+}
+
+func (c *Client) GetChapterFeedPage(ctx context.Context, mangaID string, limit, offset int) (*ChapterFeedResponse, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	u, err := url.Parse(fmt.Sprintf("%s/manga/%s/feed", c.BaseURL, mangaID))
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("order[createdAt]", "desc")
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("offset", strconv.Itoa(offset))
+	for _, lang := range c.TranslatedLanguages {
+		lang = strings.TrimSpace(lang)
+		if lang == "" {
+			continue
+		}
+		q.Add("translatedLanguage[]", lang)
+	}
+	u.RawQuery = q.Encode()
+	chapterURL := u.String()
+
 	chapterResp, err := c.FetchJSON(ctx, chapterURL)
 	if err != nil {
 		return nil, err

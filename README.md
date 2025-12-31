@@ -11,6 +11,7 @@ For a deeper architectural/workflow walkthrough (with diagrams), see `docs/workf
 - Manually check a specific manga for new chapters
 - Get automatic notifications for newly released chapters
 - Track reading progress (mark read/unread) and keep an “unread chapters” count per manga
+- Sync a manga’s full chapter history from MangaDex (so you can start from scratch)
 - Use `/status` to see basic health/state (tracked counts, total unread, last scheduler run)
 
 When a manga reaches **3+ unread chapters**, notifications include a warning.
@@ -96,6 +97,7 @@ Main menu actions:
 - **List followed manga**
 - **Check for new chapters** (manual poll for one manga)
 - **Mark chapter as read** (advances your “last read” point for that manga)
+- **Sync all chapters** (imports the full chapter list for a manga; useful when starting from scratch)
 - **List read chapters** (and mark a chapter as unread)
 - **Remove manga**
 
@@ -118,8 +120,9 @@ Core packages:
 - `internal/logger`: writes to stdout and `logs/ReleaseNoJutsu.log`.
 
 Update detection:
-- Each manga keeps a “watermark” timestamp (what’s been seen/read).
-- When checking MangaDex, the updater compares chapter timestamps and inserts anything newer, then recomputes unread counts.
+- Update polling uses a timestamp watermark (`manga.last_seen_at`) to detect newly released chapters.
+- Reading progress uses a numeric watermark (`manga.last_read_number`) so everything below that chapter number is treated as read.
+- Full sync uses MangaDex paging to import the entire chapter feed into SQLite.
 
 ## Development & validation
 

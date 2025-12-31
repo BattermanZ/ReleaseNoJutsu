@@ -52,8 +52,15 @@ type fakeMangaDex struct {
 	feed *mangadex.ChapterFeedResponse
 }
 
-func (m *fakeMangaDex) GetChapterFeed(ctx context.Context, mangaID string) (*mangadex.ChapterFeedResponse, error) {
-	return m.feed, nil
+func (m *fakeMangaDex) GetChapterFeedPage(ctx context.Context, mangaID string, limit, offset int) (*mangadex.ChapterFeedResponse, error) {
+	if offset != 0 {
+		return &mangadex.ChapterFeedResponse{Data: nil, Limit: limit, Offset: offset, Total: len(m.feed.Data)}, nil
+	}
+	cp := *m.feed
+	cp.Limit = limit
+	cp.Offset = offset
+	cp.Total = len(m.feed.Data)
+	return &cp, nil
 }
 
 func TestUpdateOne_UsesCreatedAtWatermark(t *testing.T) {
@@ -69,13 +76,13 @@ func TestUpdateOne_UsesCreatedAtWatermark(t *testing.T) {
 	md := &fakeMangaDex{
 		feed: &mangadex.ChapterFeedResponse{
 			Data: []mangadex.Chapter{
-				{Attributes: mangadex.ChapterAttributes{Chapter: "2", Title: "New", CreatedAt: newer}},
-				{Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "Old", CreatedAt: older}},
+				{ID: "c2", Attributes: mangadex.ChapterAttributes{Chapter: "2", Title: "New", CreatedAt: newer}},
+				{ID: "c1", Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "Old", CreatedAt: older}},
 			},
 		},
 	}
 
-	u := New(store, md)
+	u := New(store, md, md)
 	res, err := u.UpdateOne(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("UpdateOne(): %v", err)
@@ -92,5 +99,101 @@ func TestUpdateOne_UsesCreatedAtWatermark(t *testing.T) {
 	}
 	if store.lastSeenAt != newer {
 		t.Fatalf("store.lastSeenAt=%v, want %v", store.lastSeenAt, newer)
+	}
+}
+
+func TestSyncAll_IncludesChaptersWithoutNumbers(t *testing.T) {
+	store := &fakeStore{
+		mangaDexID: "md",
+		title:      "Title",
+		lastSeenAt: time.Time{},
+	}
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	md := &fakeMangaDex{
+		feed: &mangadex.ChapterFeedResponse{
+			Data: []mangadex.Chapter{
+				{ID: "id-extra", Attributes: mangadex.ChapterAttributes{Chapter: "", Title: "Extra", CreatedAt: t2}},
+				{ID: "id-1", Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "One", CreatedAt: t1}},
+			},
+		},
+	}
+
+	u := New(store, md, md)
+	synced, _, err := u.SyncAll(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("SyncAll(): %v", err)
+	}
+	if synced != 2 {
+		t.Fatalf("synced=%d, want 2", synced)
+	}
+	if len(store.added) != 2 {
+		t.Fatalf("added=%d, want 2", len(store.added))
+	}
+	if store.added[0].Chapter != "extra:id-extra" && store.added[1].Chapter != "extra:id-extra" {
+		t.Fatalf("expected one chapter key to be extra:id-extra, got %q and %q", store.added[0].Chapter, store.added[1].Chapter)
+	}
+}
+
+func TestSyncAll_PrefersFrenchThenEnglishAndClearsOthers(t *testing.T) {
+	store := &fakeStore{
+		mangaDexID: "md",
+		title:      "Title",
+		lastSeenAt: time.Time{},
+	}
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	md := &fakeMangaDex{
+		feed: &mangadex.ChapterFeedResponse{
+			Data: []mangadex.Chapter{
+				{ID: "en", Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "English Title", Language: "en", CreatedAt: t1}},
+				{ID: "fr", Attributes: mangadex.ChapterAttributes{Chapter: "1", Title: "Titre FR", Language: "fr", CreatedAt: t1}},
+				{ID: "es", Attributes: mangadex.ChapterAttributes{Chapter: "2", Title: "Titulo ES", Language: "es", CreatedAt: t1}},
+				{ID: "en2", Attributes: mangadex.ChapterAttributes{Chapter: "3", Title: "English 3", Language: "en", CreatedAt: t1}},
+			},
+		},
+	}
+
+	u := New(store, md, md)
+	_, _, err := u.SyncAll(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("SyncAll(): %v", err)
+	}
+
+	var got1, got2 *mangadex.ChapterAttributes
+	for i := range store.added {
+		ch := &store.added[i]
+		if ch.Chapter == "1" {
+			got1 = ch
+		}
+		if ch.Chapter == "2" {
+			got2 = ch
+		}
+	}
+	if got1 == nil || got2 == nil {
+		t.Fatalf("expected chapters 1 and 2 to be added, got %v", store.added)
+	}
+	if got1.Title != "Titre FR" {
+		t.Fatalf("chapter 1 title=%q, want Titre FR", got1.Title)
+	}
+	if got2.Title != "" {
+		t.Fatalf("chapter 2 title=%q, want empty (non-English)", got2.Title)
+	}
+
+	var got3 *mangadex.ChapterAttributes
+	for i := range store.added {
+		ch := &store.added[i]
+		if ch.Chapter == "3" {
+			got3 = ch
+		}
+	}
+	if got3 == nil {
+		t.Fatalf("expected chapter 3 to be added, got %v", store.added)
+	}
+	if got3.Title != "English 3" {
+		t.Fatalf("chapter 3 title=%q, want English 3", got3.Title)
 	}
 }

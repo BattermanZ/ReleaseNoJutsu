@@ -2,7 +2,9 @@ package db
 
 import (
 	"database/sql"
-
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +36,12 @@ type Status struct {
 	UnreadTotal    int
 	CronLastRun    time.Time
 	HasCronLastRun bool
+}
+
+type ChapterListItem struct {
+	Number string
+	Title  string
+	SeenAt time.Time
 }
 
 // New opens a connection to the database.
@@ -70,6 +78,7 @@ func (db *DB) CreateTables() error {
 			last_checked TIMESTAMP,
 			last_seen_at TIMESTAMP,
 			last_read_at TIMESTAMP,
+			last_read_number REAL,
 			unread_count INTEGER DEFAULT 0
 		);
 
@@ -118,6 +127,16 @@ func (db *DB) Migrate() error {
 	}
 	if !hasMangaLastReadAt {
 		if _, err := db.Exec("ALTER TABLE manga ADD COLUMN last_read_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	hasMangaLastReadNumber, err := db.hasColumn("manga", "last_read_number")
+	if err != nil {
+		return err
+	}
+	if !hasMangaLastReadNumber {
+		if _, err := db.Exec("ALTER TABLE manga ADD COLUMN last_read_number REAL"); err != nil {
 			return err
 		}
 	}
@@ -215,13 +234,29 @@ func (db *DB) Migrate() error {
 		return err
 	}
 
+	// Backfill last_read_number from last_read_at (numeric chapters only).
+	if _, err := db.Exec(`
+		UPDATE manga
+		SET last_read_number = (
+			SELECT MAX(CAST(chapter_number AS REAL))
+			FROM chapters
+			WHERE chapters.manga_id = manga.id
+			  AND chapter_number GLOB '[0-9]*'
+			  AND COALESCE(created_at, readable_at, published_at) <= COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
+		)
+		WHERE last_read_number IS NULL AND last_read_at IS NOT NULL
+	`); err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`
 		UPDATE manga
 		SET unread_count = (
 			SELECT COUNT(*)
 			FROM chapters
 			WHERE chapters.manga_id = manga.id
-			  AND COALESCE(created_at, readable_at, published_at) > COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
+			  AND chapter_number GLOB '[0-9]*'
+			  AND CAST(chapter_number AS REAL) > COALESCE(manga.last_read_number, -1)
 		)
 	`); err != nil {
 		return err
@@ -339,8 +374,102 @@ func (db *DB) GetLastReadAt(mangaID int) (time.Time, error) {
 	return time.Time{}, nil
 }
 
+func (db *DB) GetLastReadNumber(mangaID int) (float64, bool, error) {
+	var n sql.NullFloat64
+	if err := db.QueryRow("SELECT last_read_number FROM manga WHERE id = ?", mangaID).Scan(&n); err != nil {
+		return 0, false, err
+	}
+	if !n.Valid {
+		return 0, false, nil
+	}
+	return n.Float64, true, nil
+}
+
 func (db *DB) GetUnreadCount(mangaID int) (int, error) {
 	return db.CountUnreadChapters(mangaID)
+}
+
+func (db *DB) ListUnreadBucketStarts(mangaID int, bucketSize int, rangeStart, rangeEnd float64) ([]int, error) {
+	if bucketSize <= 0 {
+		return nil, fmt.Errorf("invalid bucketSize: %d", bucketSize)
+	}
+
+	expr := "CAST(CAST(chapters.chapter_number AS REAL) / ? AS INT) * ?"
+	args := []any{bucketSize, bucketSize}
+	// When the parent range starts at 1, we'd rather show a "1-..." bucket instead of "0-...".
+	if rangeStart == 1 {
+		expr = "CASE WHEN CAST(chapters.chapter_number AS REAL) < ? THEN 1 ELSE CAST(CAST(chapters.chapter_number AS REAL) / ? AS INT) * ? END"
+		args = []any{bucketSize, bucketSize, bucketSize}
+	}
+
+	q := fmt.Sprintf(`
+		SELECT DISTINCT %s AS bucket_start
+		FROM chapters
+		JOIN manga ON manga.id = chapters.manga_id
+		WHERE chapters.manga_id = ?
+		  AND chapters.chapter_number GLOB '[0-9]*'
+		  AND CAST(chapters.chapter_number AS REAL) > COALESCE(manga.last_read_number, -1)
+		  AND CAST(chapters.chapter_number AS REAL) >= ?
+		  AND CAST(chapters.chapter_number AS REAL) < ?
+		ORDER BY bucket_start ASC
+	`, expr)
+
+	args = append(args, mangaID, rangeStart, rangeEnd)
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var starts []int
+	for rows.Next() {
+		var start int
+		if err := rows.Scan(&start); err != nil {
+			return nil, err
+		}
+		starts = append(starts, start)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return starts, nil
+}
+
+func (db *DB) ListUnreadNumericChaptersInRange(mangaID int, start, end float64) ([]ChapterListItem, error) {
+	rows, err := db.Query(`
+		SELECT chapter_number, COALESCE(chapters.title, ''), COALESCE(created_at, readable_at, published_at) AS seen_at
+		FROM chapters
+		JOIN manga ON manga.id = chapters.manga_id
+		WHERE chapters.manga_id = ?
+		  AND chapters.chapter_number GLOB '[0-9]*'
+		  AND CAST(chapters.chapter_number AS REAL) > COALESCE(manga.last_read_number, -1)
+		  AND CAST(chapters.chapter_number AS REAL) >= ?
+		  AND CAST(chapters.chapter_number AS REAL) < ?
+		ORDER BY CAST(chapters.chapter_number AS REAL) ASC
+	`, mangaID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var items []ChapterListItem
+	for rows.Next() {
+		var it ChapterListItem
+		var seenAtStr string
+		if err := rows.Scan(&it.Number, &it.Title, &seenAtStr); err != nil {
+			return nil, err
+		}
+		seenAt, err := parseSQLiteTime(seenAtStr)
+		if err != nil {
+			return nil, err
+		}
+		it.SeenAt = seenAt
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (db *DB) CountUnreadChapters(mangaID int) (int, error) {
@@ -350,7 +479,8 @@ func (db *DB) CountUnreadChapters(mangaID int) (int, error) {
 		FROM chapters
 		JOIN manga ON manga.id = chapters.manga_id
 		WHERE chapters.manga_id = ?
-		  AND COALESCE(chapters.created_at, chapters.readable_at, chapters.published_at) > COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
+		  AND chapters.chapter_number GLOB '[0-9]*'
+		  AND CAST(chapters.chapter_number AS REAL) > COALESCE(manga.last_read_number, -1)
 	`, mangaID).Scan(&unreadCount)
 	return unreadCount, err
 }
@@ -369,7 +499,8 @@ func (db *DB) recalculateUnreadCountLocked(mangaID int) error {
 			SELECT COUNT(*)
 			FROM chapters
 			WHERE chapters.manga_id = manga.id
-			  AND COALESCE(chapters.created_at, chapters.readable_at, chapters.published_at) > COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
+			  AND chapters.chapter_number GLOB '[0-9]*'
+			  AND CAST(chapters.chapter_number AS REAL) > COALESCE(manga.last_read_number, -1)
 		)
 		WHERE id = ?
 	`, mangaID)
@@ -446,27 +577,21 @@ func (db *DB) MarkChapterAsRead(mangaID int, chapterNumber string) error {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	var chapterSeenAt time.Time
-	err := db.QueryRow(`
-		SELECT COALESCE(created_at, readable_at, published_at)
-		FROM chapters
-		WHERE manga_id = ? AND chapter_number = ?
-	`, mangaID, chapterNumber).Scan(&chapterSeenAt)
+	num, err := strconv.ParseFloat(strings.TrimSpace(chapterNumber), 64)
 	if err != nil {
-		return err
+		// Non-numeric chapters (extras) are not part of numeric progress tracking.
+		return nil
 	}
 
-	var currentLastReadAt sql.NullTime
-	err = db.QueryRow("SELECT last_read_at FROM manga WHERE id = ?", mangaID).Scan(&currentLastReadAt)
-	if err != nil {
-		return err
-	}
-	if currentLastReadAt.Valid && currentLastReadAt.Time.After(chapterSeenAt) {
-		// Don't move backwards.
-		chapterSeenAt = currentLastReadAt.Time
-	}
-
-	if _, err := db.Exec("UPDATE manga SET last_read_at = ? WHERE id = ?", chapterSeenAt.UTC(), mangaID); err != nil {
+	if _, err := db.Exec(`
+		UPDATE manga
+		SET last_read_number = CASE
+			WHEN last_read_number IS NULL THEN ?
+			WHEN last_read_number < ? THEN ?
+			ELSE last_read_number
+		END
+		WHERE id = ?
+	`, num, num, num, mangaID); err != nil {
 		return err
 	}
 	return db.recalculateUnreadCountLocked(mangaID)
@@ -476,34 +601,30 @@ func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	var chapterSeenAt time.Time
-	err := db.QueryRow(`
-		SELECT COALESCE(created_at, readable_at, published_at)
-		FROM chapters
-		WHERE manga_id = ? AND chapter_number = ?
-	`, mangaID, chapterNumber).Scan(&chapterSeenAt)
+	num, err := strconv.ParseFloat(strings.TrimSpace(chapterNumber), 64)
 	if err != nil {
-		return err
+		// Non-numeric chapters (extras) are not part of numeric progress tracking.
+		return nil
 	}
 
-	// Move last_read_at back to the previous chapter (by seenAt time), making this chapter and newer unread.
-	var prevSeenAt sql.NullTime
+	var prev sql.NullFloat64
 	err = db.QueryRow(`
-		SELECT MAX(COALESCE(created_at, readable_at, published_at))
+		SELECT MAX(CAST(chapter_number AS REAL))
 		FROM chapters
 		WHERE manga_id = ?
-		  AND COALESCE(created_at, readable_at, published_at) < ?
-	`, mangaID, chapterSeenAt).Scan(&prevSeenAt)
+		  AND chapter_number GLOB '[0-9]*'
+		  AND CAST(chapter_number AS REAL) < ?
+	`, mangaID, num).Scan(&prev)
 	if err != nil {
 		return err
 	}
 
-	if prevSeenAt.Valid {
-		if _, err := db.Exec("UPDATE manga SET last_read_at = ? WHERE id = ?", prevSeenAt.Time.UTC(), mangaID); err != nil {
+	if prev.Valid {
+		if _, err := db.Exec("UPDATE manga SET last_read_number = ? WHERE id = ?", prev.Float64, mangaID); err != nil {
 			return err
 		}
 	} else {
-		if _, err := db.Exec("UPDATE manga SET last_read_at = NULL WHERE id = ?", mangaID); err != nil {
+		if _, err := db.Exec("UPDATE manga SET last_read_number = NULL WHERE id = ?", mangaID); err != nil {
 			return err
 		}
 	}
@@ -511,14 +632,70 @@ func (db *DB) MarkChapterAsUnread(mangaID int, chapterNumber string) error {
 	return db.recalculateUnreadCountLocked(mangaID)
 }
 
+func (db *DB) GetLastReadChapter(mangaID int) (chapterNumber string, title string, ok bool, err error) {
+	var num, t string
+	err = db.QueryRow(`
+		SELECT chapter_number, COALESCE(title, '')
+		FROM chapters
+		WHERE manga_id = ?
+		  AND chapter_number GLOB '[0-9]*'
+		  AND CAST(chapter_number AS REAL) <= COALESCE((SELECT last_read_number FROM manga WHERE id = ?), -1)
+		ORDER BY CAST(chapter_number AS REAL) DESC
+		LIMIT 1
+	`, mangaID, mangaID).Scan(&num, &t)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return num, t, true, nil
+}
+
+func (db *DB) ListUnreadChapters(mangaID int, limit, offset int) ([]ChapterListItem, error) {
+	rows, err := db.Query(`
+		SELECT chapter_number, COALESCE(title, ''), COALESCE(created_at, readable_at, published_at) AS seen_at
+		FROM chapters
+		WHERE manga_id = ?
+		  AND chapter_number GLOB '[0-9]*'
+		  AND CAST(chapter_number AS REAL) > COALESCE((SELECT last_read_number FROM manga WHERE id = ?), -1)
+		ORDER BY CAST(chapter_number AS REAL) ASC
+		LIMIT ? OFFSET ?
+	`, mangaID, mangaID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]ChapterListItem, 0, limit)
+	for rows.Next() {
+		var it ChapterListItem
+		var seenAtStr string
+		if err := rows.Scan(&it.Number, &it.Title, &seenAtStr); err != nil {
+			return nil, err
+		}
+		seenAt, err := parseSQLiteTime(seenAtStr)
+		if err != nil {
+			return nil, err
+		}
+		it.SeenAt = seenAt
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (db *DB) GetUnreadChapters(mangaID int) (*sql.Rows, error) {
 	return db.Query(`
 		SELECT chapter_number, title 
 		FROM chapters 
 		WHERE manga_id = ?
-		  AND COALESCE(created_at, readable_at, published_at) > COALESCE((SELECT last_read_at FROM manga WHERE id = ?), '1970-01-01T00:00:00Z')
+		  AND chapter_number GLOB '[0-9]*'
+		  AND CAST(chapter_number AS REAL) > COALESCE((SELECT last_read_number FROM manga WHERE id = ?), -1)
 		ORDER BY 
-			COALESCE(created_at, readable_at, published_at) DESC
+			CAST(chapter_number AS REAL) ASC
 		LIMIT 3
 	`, mangaID, mangaID)
 }
@@ -528,9 +705,10 @@ func (db *DB) GetReadChapters(mangaID int) (*sql.Rows, error) {
 		SELECT chapter_number, title 
 		FROM chapters 
 		WHERE manga_id = ?
-		  AND COALESCE(created_at, readable_at, published_at) <= COALESCE((SELECT last_read_at FROM manga WHERE id = ?), '1970-01-01T00:00:00Z')
+		  AND chapter_number GLOB '[0-9]*'
+		  AND CAST(chapter_number AS REAL) <= COALESCE((SELECT last_read_number FROM manga WHERE id = ?), -1)
 		ORDER BY 
-			COALESCE(created_at, readable_at, published_at) DESC
+			CAST(chapter_number AS REAL) DESC
 		LIMIT 3
 	`, mangaID, mangaID)
 }
@@ -610,4 +788,36 @@ func (db *DB) GetStatus() (Status, error) {
 		s.HasCronLastRun = true
 	}
 	return s, nil
+}
+
+func parseSQLiteTime(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+
+	// Formats observed in practice with SQLite/go-sqlite3.
+	layoutsWithZone := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05Z07:00",
+	}
+	for _, layout := range layoutsWithZone {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+
+	layoutsNoZone := []string{
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layoutsNoZone {
+		if t, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unsupported timestamp format: %q", s)
 }

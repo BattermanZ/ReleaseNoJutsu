@@ -63,7 +63,10 @@ func main() {
 		return
 	}
 
-	mdClient := mangadex.NewClient()
+	mdUpdateClient := mangadex.NewClient()
+	// Full sync should not be limited to a single language; this lets you start from scratch
+	// and still have a complete chapter list locally.
+	mdSyncClient := mangadex.NewClientWithLanguages(nil)
 
 	api, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
 	if err != nil {
@@ -71,10 +74,10 @@ func main() {
 		return
 	}
 
-	upd := updater.New(database, mdClient)
+	upd := updater.New(database, mdUpdateClient, mdSyncClient)
 	notifier := notify.NewTelegramNotifier(api)
 
-	appBot := bot.New(api, database, mdClient, cfg, upd)
+	appBot := bot.New(api, database, mdUpdateClient, cfg, upd)
 
 	scheduler := cron.NewScheduler(database, notifier, upd)
 	go scheduler.Run(ctx)
