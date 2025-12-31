@@ -67,10 +67,6 @@ func TestListManga_DoesNotHoldConnectionOpen(t *testing.T) {
 		t.Fatalf("AddManga(): %v", err)
 	}
 
-	if err := database.SetLastReadAt(int(mangaID), time.Now().UTC()); err != nil {
-		t.Fatalf("SetLastReadAt(): %v", err)
-	}
-
 	manga, err := database.ListManga()
 	if err != nil {
 		t.Fatalf("ListManga(): %v", err)
@@ -128,7 +124,7 @@ func TestGetLastReadChapterAndListUnreadChapters(t *testing.T) {
 		t.Fatalf("AddChapter(3): %v", err)
 	}
 
-	// No last_read_at set yet.
+	// No last_read_number set yet.
 	if num, title, ok, err := database.GetLastReadChapter(int(mangaID)); err != nil || ok || num != "" || title != "" {
 		t.Fatalf("GetLastReadChapter(no read) = (%q,%q,%v,%v), want ok=false and empty", num, title, ok, err)
 	}
@@ -246,11 +242,105 @@ func TestListUnreadBucketStartsAndRangeListing(t *testing.T) {
 		}
 	}
 
-	chs, err := database.ListUnreadNumericChaptersInRange(int(mangaID), 1110, 1120)
+	chs, err := database.ListUnreadNumericChaptersInRange(int(mangaID), 1110, 1120, 50, 0)
 	if err != nil {
 		t.Fatalf("ListUnreadNumericChaptersInRange(): %v", err)
 	}
 	if len(chs) != 1 || chs[0].Number != "1115" {
 		t.Fatalf("ListUnreadNumericChaptersInRange()=%v, want [1115]", chs)
+	}
+}
+
+func TestListReadBucketStartsAndRangeListing(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
+
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	if err != nil {
+		t.Fatalf("AddManga(): %v", err)
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	add := func(num string) {
+		t.Helper()
+		if err := database.AddChapter(mangaID, num, "t", ts, ts, ts, ts); err != nil {
+			t.Fatalf("AddChapter(%s): %v", num, err)
+		}
+	}
+	add("1")
+	add("5")
+	add("100")
+	add("250")
+	add("999")
+	add("1000")
+	add("1100")
+	add("1115")
+	add("1999")
+	add("2000")
+
+	// Mark read up to 1115.
+	if err := database.MarkChapterAsRead(int(mangaID), "1115"); err != nil {
+		t.Fatalf("MarkChapterAsRead(1115): %v", err)
+	}
+
+	got, err := database.ListReadBucketStarts(int(mangaID), 1000, 1, 1.0e18)
+	if err != nil {
+		t.Fatalf("ListReadBucketStarts(1000): %v", err)
+	}
+	want := []int{1000, 1}
+	if len(got) != len(want) {
+		t.Fatalf("ListReadBucketStarts(1000)=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ListReadBucketStarts(1000)=%v, want %v", got, want)
+		}
+	}
+
+	got, err = database.ListReadBucketStarts(int(mangaID), 100, 1, 1000)
+	if err != nil {
+		t.Fatalf("ListReadBucketStarts(100): %v", err)
+	}
+	want = []int{900, 200, 100, 1}
+	if len(got) != len(want) {
+		t.Fatalf("ListReadBucketStarts(100)=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ListReadBucketStarts(100)=%v, want %v", got, want)
+		}
+	}
+
+	got, err = database.ListReadBucketStarts(int(mangaID), 10, 1100, 1200)
+	if err != nil {
+		t.Fatalf("ListReadBucketStarts(10): %v", err)
+	}
+	want = []int{1110, 1100}
+	if len(got) != len(want) {
+		t.Fatalf("ListReadBucketStarts(10)=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ListReadBucketStarts(10)=%v, want %v", got, want)
+		}
+	}
+
+	chs, err := database.ListReadNumericChaptersInRange(int(mangaID), 1110, 1120, 50, 0)
+	if err != nil {
+		t.Fatalf("ListReadNumericChaptersInRange(): %v", err)
+	}
+	if len(chs) != 1 || chs[0].Number != "1115" {
+		t.Fatalf("ListReadNumericChaptersInRange()=%v, want [1115]", chs)
 	}
 }
