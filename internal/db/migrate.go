@@ -14,6 +14,16 @@ func (db *DB) Migrate() error {
 		}
 	}
 
+	hasMangaIsMangaPlus, err := db.hasColumn("manga", "is_manga_plus")
+	if err != nil {
+		return err
+	}
+	if !hasMangaIsMangaPlus {
+		if _, err := db.Exec("ALTER TABLE manga ADD COLUMN is_manga_plus INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+
 	hasMangaLastReadAt, err := db.hasColumn("manga", "last_read_at")
 	if err != nil {
 		return err

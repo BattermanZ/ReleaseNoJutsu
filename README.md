@@ -11,10 +11,11 @@ For a deeper architectural/workflow walkthrough (with diagrams), see `docs/workf
 - Manually check a specific manga for new chapters
 - Get automatic notifications for newly released chapters
 - Track reading progress (mark read/unread) and keep an “unread chapters” count per manga
+- Mark/unmark a manga as “MANGA Plus” (only these get the 3+ unread warning)
 - Sync a manga’s full chapter history from MangaDex (so you can start from scratch)
 - Use `/status` to see basic health/state (tracked counts, total unread, last scheduler run)
 
-When a manga reaches **3+ unread chapters**, notifications include a warning.
+When a manga reaches **3+ unread chapters**, notifications include a warning **only if that manga is marked as “MANGA Plus”**.
 
 ## Quick start (Docker Compose)
 

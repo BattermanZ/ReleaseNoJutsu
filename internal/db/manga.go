@@ -10,12 +10,48 @@ func (db *DB) AddManga(mangaID, title string) (int64, error) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, last_checked) VALUES (?, ?, ?)",
-		mangaID, title, time.Now().UTC())
+	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?)",
+		mangaID, title, 0, time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+func (db *DB) AddMangaWithMangaPlus(mangaID, title string, isMangaPlus bool) (int64, error) {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	val := 0
+	if isMangaPlus {
+		val = 1
+	}
+	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?)",
+		mangaID, title, val, time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (db *DB) IsMangaPlus(mangaID int) (bool, error) {
+	var v int
+	if err := db.QueryRow("SELECT is_manga_plus FROM manga WHERE id = ?", mangaID).Scan(&v); err != nil {
+		return false, err
+	}
+	return v != 0, nil
+}
+
+func (db *DB) SetMangaPlus(mangaID int, isMangaPlus bool) error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	val := 0
+	if isMangaPlus {
+		val = 1
+	}
+	_, err := db.Exec("UPDATE manga SET is_manga_plus = ? WHERE id = ?", val, mangaID)
+	return err
 }
 
 func (db *DB) GetManga(mangaID int) (string, string, time.Time, time.Time, error) {
@@ -52,7 +88,7 @@ func (db *DB) UpdateMangaLastSeenAt(mangaID int, seenAt time.Time) error {
 }
 
 func (db *DB) GetAllManga() (*sql.Rows, error) {
-	return db.Query("SELECT id, mangadex_id, title, last_checked, last_seen_at, last_read_number, unread_count FROM manga")
+	return db.Query("SELECT id, mangadex_id, title, is_manga_plus, last_checked, last_seen_at, last_read_number, unread_count FROM manga")
 }
 
 func (db *DB) ListManga() ([]Manga, error) {
@@ -65,11 +101,13 @@ func (db *DB) ListManga() ([]Manga, error) {
 	var manga []Manga
 	for rows.Next() {
 		var row Manga
+		var isMangaPlus int
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
-		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &row.LastChecked, &lastSeenAt, &lastReadNumber, &row.UnreadCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &isMangaPlus, &row.LastChecked, &lastSeenAt, &lastReadNumber, &row.UnreadCount); err != nil {
 			return nil, err
 		}
+		row.IsMangaPlus = isMangaPlus != 0
 		if lastSeenAt.Valid {
 			row.LastSeenAt = lastSeenAt.Time
 		}
@@ -88,6 +126,7 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 	var (
 		lastCheckedStr string
 		lastSeenAtStr  string
+		isMangaPlus    int
 		lastReadNum    sql.NullFloat64
 		minNum         sql.NullFloat64
 		maxNum         sql.NullFloat64
@@ -99,6 +138,7 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 			m.id,
 			m.mangadex_id,
 			m.title,
+			m.is_manga_plus,
 			COALESCE(CAST(m.last_checked AS TEXT), ''),
 			COALESCE(CAST(m.last_seen_at AS TEXT), ''),
 			m.last_read_number,
@@ -113,6 +153,7 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 		&d.ID,
 		&d.MangaDexID,
 		&d.Title,
+		&isMangaPlus,
 		&lastCheckedStr,
 		&lastSeenAtStr,
 		&lastReadNum,
@@ -125,6 +166,7 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 	if err != nil {
 		return MangaDetails{}, err
 	}
+	d.IsMangaPlus = isMangaPlus != 0
 
 	if strings.TrimSpace(lastCheckedStr) != "" {
 		if t, err := parseSQLiteTime(lastCheckedStr); err == nil {

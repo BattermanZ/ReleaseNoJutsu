@@ -7,6 +7,7 @@ func (db *DB) CreateTables() error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			mangadex_id TEXT NOT NULL UNIQUE,
 			title TEXT NOT NULL,
+			is_manga_plus INTEGER NOT NULL DEFAULT 0,
 			last_checked TIMESTAMP,
 			last_seen_at TIMESTAMP,
 			last_read_number REAL,

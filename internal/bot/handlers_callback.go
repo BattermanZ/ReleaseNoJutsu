@@ -16,6 +16,18 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	action := parts[0]
 
 	switch action {
+	case "add_confirm":
+		if len(parts) < 3 {
+			logger.LogMsg(logger.LogError, "Invalid callback data for add_confirm: %s", query.Data)
+			return
+		}
+		mangaDexID := parts[1]
+		isPlusInt, err := strconv.Atoi(parts[2])
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error converting isMangaPlus flag: %v", err)
+			return
+		}
+		b.confirmAddManga(query.Message.Chat.ID, mangaDexID, isPlusInt != 0)
 	case "add_manga":
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, `📚 *Add a New Manga*
 Please send the MangaDex URL or ID of the manga you want to track.`)

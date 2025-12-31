@@ -59,7 +59,11 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 		return
 	}
 
-	message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount)
+	isMangaPlus, err := b.db.IsMangaPlus(mangaID)
+	if err != nil {
+		isMangaPlus = false
+	}
+	message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount, isMangaPlus)
 	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)

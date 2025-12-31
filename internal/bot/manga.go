@@ -33,20 +33,26 @@ func (b *Bot) handleListManga(chatID int64) {
 	for rows.Next() {
 		var id int
 		var mangadexID, title string
+		var isMangaPlus int
 		var lastChecked string
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
 		var unreadCount int
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
+		err := rows.Scan(&id, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
 		}
 		count++
 
+		displayTitle := title
+		if isMangaPlus != 0 {
+			displayTitle = "⭐ " + displayTitle
+		}
+
 		// Manga title row
 		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d. %s", count, title), "ignore"), // "ignore" as a placeholder, no action on title click
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d. %s", count, displayTitle), "ignore"), // "ignore" as a placeholder, no action on title click
 		))
 
 		// Action buttons row
@@ -58,6 +64,9 @@ func (b *Bot) handleListManga(chatID int64) {
 
 		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("ℹ️ Details", fmt.Sprintf("manga_action:%d:details", id)),
+			tgbotapi.NewInlineKeyboardButtonData("⭐ Toggle MANGA Plus", fmt.Sprintf("manga_action:%d:toggle_plus", id)),
+		))
+		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", fmt.Sprintf("manga_action:%d:remove_manga", id)),
 		))
 	}
@@ -86,18 +95,23 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
 	for rows.Next() {
 		var id int
 		var mangadexID, title string
+		var isMangaPlus int
 		var lastChecked string
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
 		var unreadCount int
-		err := rows.Scan(&id, &mangadexID, &title, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
+		err := rows.Scan(&id, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
 		}
+		displayTitle := title
+		if isMangaPlus != 0 {
+			displayTitle = "⭐ " + displayTitle
+		}
 		callbackData := fmt.Sprintf("select_manga:%d:%s", id, nextAction)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(title, callbackData),
+			tgbotapi.NewInlineKeyboardButtonData(displayTitle, callbackData),
 		})
 	}
 
@@ -145,6 +159,8 @@ func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string)
 		b.sendMarkUnreadStartMenu(chatID, mangaID)
 	case "details":
 		b.handleMangaDetails(chatID, mangaID)
+	case "toggle_plus":
+		b.toggleMangaPlus(chatID, mangaID)
 	case "remove_manga":
 		b.handleRemoveManga(chatID, mangaID)
 	default:
@@ -167,6 +183,11 @@ func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
 	bld.WriteString("<b>Manga Details</b>\n\n")
 	bld.WriteString(fmt.Sprintf("Title: <b>%s</b>\n", html.EscapeString(d.Title)))
 	bld.WriteString(fmt.Sprintf(`MangaDex: <a href="https://mangadex.org/title/%s">Open</a>`+"\n", html.EscapeString(d.MangaDexID)))
+	if d.IsMangaPlus {
+		bld.WriteString("MANGA Plus: <b>yes</b>\n")
+	} else {
+		bld.WriteString("MANGA Plus: <b>no</b>\n")
+	}
 	bld.WriteString(fmt.Sprintf("Chapters stored: <b>%d</b> (numeric: <b>%d</b>)\n", d.ChaptersTotal, d.NumericChaptersTotal))
 	if d.HasMinNumber && d.HasMaxNumber {
 		bld.WriteString(fmt.Sprintf("Numeric range: <b>%.1f</b> → <b>%.1f</b>\n", d.MinNumber, d.MaxNumber))
@@ -187,6 +208,41 @@ func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
 
 	msg := tgbotapi.NewMessage(chatID, bld.String())
 	msg.ParseMode = "HTML"
+	toggleLabel := "⭐ Mark as MANGA Plus"
+	if d.IsMangaPlus {
+		toggleLabel = "⭐ Unmark MANGA Plus"
+	}
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(toggleLabel, fmt.Sprintf("manga_action:%d:toggle_plus", mangaID)),
+		),
+	)
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) toggleMangaPlus(chatID int64, mangaID int) {
+	cur, err := b.db.IsMangaPlus(mangaID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error getting manga plus flag: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not update MANGA Plus status right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+	next := !cur
+	if err := b.db.SetMangaPlus(mangaID, next); err != nil {
+		logger.LogMsg(logger.LogError, "Error setting manga plus flag: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not update MANGA Plus status right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	title, _ := b.db.GetMangaTitle(mangaID)
+	state := "disabled"
+	if next {
+		state = "enabled"
+	}
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ MANGA Plus is now *%s* for *%s*.", state, title))
+	msg.ParseMode = "Markdown"
 	b.sendMessageWithMainMenuButton(msg)
 }
 

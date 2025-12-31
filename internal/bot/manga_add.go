@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -39,7 +40,53 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 		}
 	}
 
-	mangaDBID, err := b.db.AddManga(mangaID, title)
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Title not available"
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Yes (MANGA Plus)", fmt.Sprintf("add_confirm:%s:1", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ No", fmt.Sprintf("add_confirm:%s:0", mangaID)),
+		),
+	)
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📚 *%s*\n\nIs this a *MANGA Plus* manga?\n\nThis controls whether you get the “3+ unread chapters” warning.", title))
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func (b *Bot) confirmAddManga(chatID int64, mangaDexID string, isMangaPlus bool) {
+	b.logAction(chatID, "Confirm add manga", fmt.Sprintf("%s (MANGA Plus=%t)", mangaDexID, isMangaPlus))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	mangaData, err := b.mdClient.GetManga(ctx, mangaDexID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga data. Please check the ID and try again.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+
+	var title string
+	if enTitle, ok := mangaData.Data.Attributes.Title["en"]; ok && enTitle != "" {
+		title = enTitle
+	} else {
+		for _, val := range mangaData.Data.Attributes.Title {
+			if val != "" {
+				title = val
+				break
+			}
+		}
+		if title == "" {
+			title = "Title not available"
+		}
+	}
+
+	mangaDBID, err := b.db.AddMangaWithMangaPlus(mangaDexID, title, isMangaPlus)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error inserting manga into database: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Error adding the manga to the database. It may already exist or the ID is invalid.")
@@ -48,7 +95,11 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 	}
 
 	// Full backfill so you can start from scratch (have the complete chapter list locally).
-	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Added *%s*.\n\n🔄 Now syncing all chapters from MangaDex (this can take a bit)...", title))
+	mangaPlusLabel := "no"
+	if isMangaPlus {
+		mangaPlusLabel = "yes"
+	}
+	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Added *%s*.\nMANGA Plus: *%s*\n\n🔄 Now syncing all chapters from MangaDex (this can take a bit)...", title, mangaPlusLabel))
 	startMsg.ParseMode = "Markdown"
 	b.sendMessageWithMainMenuButton(startMsg)
 

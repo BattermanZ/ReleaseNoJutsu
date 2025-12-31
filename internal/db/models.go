@@ -6,6 +6,7 @@ type Manga struct {
 	ID             int
 	MangaDexID     string
 	Title          string
+	IsMangaPlus    bool
 	LastChecked    time.Time
 	LastSeenAt     time.Time
 	LastReadNumber float64
@@ -31,6 +32,7 @@ type MangaDetails struct {
 	ID                   int
 	MangaDexID           string
 	Title                string
+	IsMangaPlus          bool
 	HasLastChecked       bool
 	LastChecked          time.Time
 	HasLastSeenAt        bool

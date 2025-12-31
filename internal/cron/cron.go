@@ -84,7 +84,11 @@ func (s *Scheduler) performUpdate(ctx context.Context) {
 			continue
 		}
 
-		message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount)
+		isMangaPlus, err := s.DB.IsMangaPlus(res.MangaID)
+		if err != nil {
+			isMangaPlus = false
+		}
+		message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount, isMangaPlus)
 		for _, chatID := range users {
 			if err := s.Notifier.SendHTML(chatID, message); err != nil {
 				logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, err)

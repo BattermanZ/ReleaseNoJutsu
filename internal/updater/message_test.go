@@ -14,6 +14,7 @@ func TestFormatNewChaptersMessageHTML_EscapesDynamicContent(t *testing.T) {
 			{Number: `1`, Title: `Title with <script>alert(1)</script> & stuff`},
 		},
 		1,
+		false,
 	)
 
 	if strings.Contains(msg, "<script>") {
