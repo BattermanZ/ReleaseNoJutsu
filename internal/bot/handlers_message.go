@@ -6,6 +6,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -18,16 +19,16 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 
 	if message.IsCommand() {
 		switch message.Command() {
-		case "start":
+		case appcopy.Copy.Commands.Start:
 			b.sendMainMenu(message.Chat.ID)
-		case "help":
+		case appcopy.Copy.Commands.Help:
 			b.sendHelpMessage(message.Chat.ID)
-		case "status":
+		case appcopy.Copy.Commands.Status:
 			b.sendStatusMessage(message.Chat.ID)
-		case "genpair":
+		case appcopy.Copy.Commands.GenPair:
 			b.handleGeneratePairingCode(message.Chat.ID, message.From.ID)
 		default:
-			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
+			msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.UnknownCommand)
 			if _, err := b.api.Send(msg); err != nil {
 				logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
 			}
@@ -48,7 +49,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 			return
 		}
 
-		msg := tgbotapi.NewMessage(message.Chat.ID, "I’m not sure what you mean. Use /start to see available options.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.UnknownMessage)
 		if _, err := b.api.Send(msg); err != nil {
 			logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
 		}
@@ -62,7 +63,7 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 	replyText := strings.TrimSpace(message.Text)
 
 	// Add manga flow (supports URL or raw UUID).
-	if strings.Contains(replyTo, "Add a New Manga") || strings.Contains(replyTo, "MangaDex URL or ID") || strings.Contains(replyTo, "MangaDex ID") {
+	if strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaTitle) || strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaPlaceholder) {
 		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
 			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
 			return
@@ -71,7 +72,7 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 		return
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, "I didn’t understand that reply. Please use /start for options.")
+	msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.UnknownReply)
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
 	}

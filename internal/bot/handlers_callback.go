@@ -6,6 +6,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -29,10 +30,9 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 		}
 		b.confirmAddManga(query.Message.Chat.ID, query.From.ID, mangaDexID, isPlusInt != 0)
 	case "add_manga":
-		msg := tgbotapi.NewMessage(query.Message.Chat.ID, `📚 *Add a New Manga*
-Please send the MangaDex URL or ID of the manga you want to track.`)
+		msg := tgbotapi.NewMessage(query.Message.Chat.ID, appcopy.Copy.Prompts.AddMangaTitle)
 		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "MangaDex ID"}
+		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: appcopy.Copy.Prompts.AddMangaPlaceholder}
 		b.sendMessageWithMainMenuButton(msg)
 	case "list_manga":
 		b.handleListManga(query.Message.Chat.ID, query.From.ID)

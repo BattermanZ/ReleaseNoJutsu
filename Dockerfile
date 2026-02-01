@@ -1,5 +1,5 @@
 # Use Go base image for building (Debian-based).
-FROM golang:1.25.5 AS builder
+FROM golang:1.25.6 AS builder
 
 # Install build dependencies required by CGO
 RUN apt-get update && apt-get install -y --no-install-recommends \

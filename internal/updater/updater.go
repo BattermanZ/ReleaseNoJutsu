@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/db"
 	"releasenojutsu/internal/mangadex"
 )
@@ -289,16 +290,17 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 
 func FormatNewChaptersMessage(mangaTitle string, newChapters []mangadex.ChapterInfo, unreadCount int, warnOnThreePlus bool) string {
 	var messageBuilder strings.Builder
-	messageBuilder.WriteString("📢 New Chapter Alert!\n\n")
-	messageBuilder.WriteString(fmt.Sprintf("%s has new chapters:\n", mangaTitle))
+	messageBuilder.WriteString(appcopy.Copy.Info.NewChapterAlertTitlePlain)
+	messageBuilder.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertHeaderPlain, mangaTitle))
 	for _, chapter := range newChapters {
-		messageBuilder.WriteString(fmt.Sprintf("• Ch. %s: %s\n", chapter.Number, chapter.Title))
+		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, chapter.Number)
+		messageBuilder.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertItemPlain, label, chapter.Title))
 	}
-	messageBuilder.WriteString(fmt.Sprintf("\nYou now have %d unread chapter(s) for this series.\n", unreadCount))
+	messageBuilder.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertUnreadPlain, unreadCount))
 	if warnOnThreePlus && unreadCount >= 3 {
-		messageBuilder.WriteString("\n⚠️ Warning: you have 3 or more unread chapters for this manga!")
+		messageBuilder.WriteString(appcopy.Copy.Info.NewChapterAlertWarningPlain)
 	}
-	messageBuilder.WriteString("\nUse /start to mark chapters as read or explore other options.")
+	messageBuilder.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertFooterPlain, appcopy.Copy.Commands.Start))
 	return messageBuilder.String()
 }
 
@@ -330,7 +332,7 @@ func displayChapterNumber(ch mangadex.Chapter) string {
 	if num != "" {
 		return num
 	}
-	return "Extra"
+	return appcopy.Copy.Labels.ExtraChapterNumber
 }
 
 func chapterLanguageScore(ch mangadex.Chapter) int {

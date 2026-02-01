@@ -7,6 +7,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -16,13 +17,13 @@ func (b *Bot) handleMarkChapterAsUnread(chatID int64, userID int64, mangaID int,
 	err := b.db.MarkChapterAsUnread(mangaID, chapterNumber)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error marking chapter as unread: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not update the chapter status. Please try again.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotUpdateChapter)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
-	result := fmt.Sprintf("✅ Chapter <b>%s</b> of <b>%s</b> is now marked as unread.", html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
+	result := fmt.Sprintf(appcopy.Copy.Info.MarkUnreadResult, html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
 	msg := tgbotapi.NewMessage(chatID, result)
 	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
@@ -32,7 +33,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 	readCount, err := b.db.CountReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -41,7 +42,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 	lastReadLine := b.lastReadLine(mangaID)
 
 	if readCount == 0 {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: 0\n\nNothing to mark unread yet.", mangaTitle, lastReadLine))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.NothingToUnread, mangaTitle, lastReadLine))
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -54,7 +55,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 	thousands, err := b.db.ListReadBucketStarts(mangaID, 1000, 1, 1.0e18)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing thousand buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -72,7 +73,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 	hundreds, err := b.db.ListReadBucketStarts(mangaID, 100, rs, re)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing hundred buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -90,7 +91,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 	tens, err := b.db.ListReadBucketStarts(mangaID, 10, rs, re)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing tens buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -110,23 +111,27 @@ func (b *Bot) sendMarkUnreadDirectChaptersMenu(chatID int64, userID int64, manga
 	chapters, err := b.db.ListReadNumericChaptersInRange(mangaID, 1, 1.0e18, 10, 0)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for _, ch := range chapters {
-		label := fmt.Sprintf("Ch. %s", ch.Number)
 		if strings.TrimSpace(ch.Title) != "" {
-			label = fmt.Sprintf("Ch. %s: %s", ch.Number, ch.Title)
+			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
+			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+			})
+			continue
 		}
+		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
 		})
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: %d\n\nSelect a chapter to mark it (and all following ones) as unread:", mangaTitle, lastReadLine, readCount))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickChapterUnread, mangaTitle, lastReadLine, readCount))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -135,7 +140,7 @@ func (b *Bot) sendMarkUnreadThousandsMenuPage(chatID int64, userID int64, mangaI
 	readCount, err := b.db.CountReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -145,7 +150,7 @@ func (b *Bot) sendMarkUnreadThousandsMenuPage(chatID int64, userID int64, mangaI
 	starts, err := b.db.ListReadBucketStarts(mangaID, 1000, 1, 1.0e18)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing thousand buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -181,16 +186,16 @@ func (b *Bot) sendMarkUnreadThousandsMenu(chatID int64, userID int64, mangaID in
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("⬅️ Prev", fmt.Sprintf("mu_page:%d:%d", mangaID, page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mu_page:%d:%d", mangaID, page-1)))
 	}
 	if page < maxPage {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("Next ➡️", fmt.Sprintf("mu_page:%d:%d", mangaID, page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mu_page:%d:%d", mangaID, page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: %d\n\nPick a range:", mangaTitle, lastReadLine, readCount))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeRead, mangaTitle, lastReadLine, readCount))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -199,7 +204,7 @@ func (b *Bot) sendMarkUnreadHundredsMenu(chatID int64, userID int64, mangaID int
 	readCount, err := b.db.CountReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -211,7 +216,7 @@ func (b *Bot) sendMarkUnreadHundredsMenu(chatID int64, userID int64, mangaID int
 	starts, err := b.db.ListReadBucketStarts(mangaID, 100, rangeStart, rangeEnd)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing hundred buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -228,11 +233,11 @@ func (b *Bot) sendMarkUnreadHundredsMenu(chatID int64, userID int64, mangaID int
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ Back", fmt.Sprintf("mu_back_root:%d", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_root:%d", mangaID)),
 		})
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: %d\nRange: %s\n\nPick a range:", mangaTitle, lastReadLine, readCount, bucketLabel(thousandStart, 1000)))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeReadWithBucket, mangaTitle, lastReadLine, readCount, bucketLabel(thousandStart, 1000)))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -241,7 +246,7 @@ func (b *Bot) sendMarkUnreadTensMenu(chatID int64, userID int64, mangaID int, hu
 	readCount, err := b.db.CountReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -253,7 +258,7 @@ func (b *Bot) sendMarkUnreadTensMenu(chatID int64, userID int64, mangaID int, hu
 	starts, err := b.db.ListReadBucketStarts(mangaID, 10, rangeStart, rangeEnd)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing tens buckets: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -270,11 +275,11 @@ func (b *Bot) sendMarkUnreadTensMenu(chatID int64, userID int64, mangaID int, hu
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ Back", fmt.Sprintf("mu_back_hundreds:%d:%d", mangaID, hundredStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_hundreds:%d:%d", mangaID, hundredStart)),
 		})
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: %d\nRange: %s\n\nPick a range:", mangaTitle, lastReadLine, readCount, bucketLabel(hundredStart, 100)))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeReadWithBucket, mangaTitle, lastReadLine, readCount, bucketLabel(hundredStart, 100)))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -283,7 +288,7 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 	readCount, err := b.db.CountReadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting read chapters: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -295,7 +300,7 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 	totalInRange, err := b.db.CountReadNumericChaptersInRange(mangaID, rangeStart, rangeEnd)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting chapters in range: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -314,17 +319,21 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 	chapters, err := b.db.ListReadNumericChaptersInRange(mangaID, rangeStart, rangeEnd, pageSize, page*pageSize)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing chapters in range: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not load read chapters right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotLoadRead)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for _, ch := range chapters {
-		label := fmt.Sprintf("Ch. %s", ch.Number)
 		if strings.TrimSpace(ch.Title) != "" {
-			label = fmt.Sprintf("Ch. %s: %s", ch.Number, ch.Title)
+			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
+			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+			})
+			continue
 		}
+		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
 		})
@@ -333,21 +342,21 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("⬅️ Prev", fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page-1)))
 	}
 	if (page+1)*pageSize < totalInRange {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("Next ➡️", fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
 	}
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ Back", fmt.Sprintf("mu_back_tens:%d:%d", mangaID, tenStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_tens:%d:%d", mangaID, tenStart)),
 		})
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📖 %s\n\n%s\nRead: %d\nRange: %s\n\nSelect a chapter to mark it (and all following ones) as unread:", mangaTitle, lastReadLine, readCount, bucketLabel(tenStart, 10)))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickChapterUnread, mangaTitle, lastReadLine, readCount))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }

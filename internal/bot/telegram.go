@@ -5,6 +5,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/config"
 	"releasenojutsu/internal/db"
 	"releasenojutsu/internal/logger"
@@ -52,10 +53,10 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	// Set bot commands
 	commands := []tgbotapi.BotCommand{
-		{Command: "start", Description: "Show the main menu"},
-		{Command: "help", Description: "Show help information"},
-		{Command: "status", Description: "Show status/health information"},
-		{Command: "genpair", Description: "Generate a pairing code (admin only)"},
+		{Command: appcopy.Copy.Commands.Start, Description: appcopy.Copy.Commands.StartDesc},
+		{Command: appcopy.Copy.Commands.Help, Description: appcopy.Copy.Commands.HelpDesc},
+		{Command: appcopy.Copy.Commands.Status, Description: appcopy.Copy.Commands.StatusDesc},
+		{Command: appcopy.Copy.Commands.GenPair, Description: appcopy.Copy.Commands.GenPairDesc},
 	}
 	if _, err := b.api.Request(tgbotapi.NewSetMyCommands(commands...)); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed to set bot commands: %v", err)
@@ -143,14 +144,14 @@ func (b *Bot) isAdmin(userID int64) bool {
 }
 
 func (b *Bot) sendUnauthorizedMessage(chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "🚫 You’re not authorized yet.\nAsk the admin for a pairing code and send it here (format: XXXX-XXXX).")
+	msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.Unauthorized)
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending unauthorized message to %d: %v", chatID, err)
 	}
 }
 
 func (b *Bot) sendPrivateOnlyMessage(chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "🚫 This bot can only be used in a private chat.")
+	msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.PrivateChatOnly)
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending private-only message to %d: %v", chatID, err)
 	}

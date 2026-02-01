@@ -5,21 +5,23 @@ import (
 	"html"
 	"strings"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/mangadex"
 )
 
 func FormatNewChaptersMessageHTML(mangaTitle string, newChapters []mangadex.ChapterInfo, unreadCount int, warnOnThreePlus bool) string {
 	var b strings.Builder
-	b.WriteString("📢 <b>New Chapter Alert!</b>\n\n")
-	b.WriteString(fmt.Sprintf("<b>%s</b> has new chapters:\n", html.EscapeString(mangaTitle)))
+	b.WriteString(appcopy.Copy.Info.NewChapterAlertTitle)
+	b.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertHeader, html.EscapeString(mangaTitle)))
 	for _, chapter := range newChapters {
 		// Keep chapter number unescaped for readability, but escape anyway to be safe.
-		b.WriteString(fmt.Sprintf("• <b>Ch. %s</b>: %s\n", html.EscapeString(chapter.Number), html.EscapeString(chapter.Title)))
+		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, html.EscapeString(chapter.Number))
+		b.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertItem, label, html.EscapeString(chapter.Title)))
 	}
-	b.WriteString(fmt.Sprintf("\nYou now have <b>%d</b> unread chapter(s) for this series.\n", unreadCount))
+	b.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertUnread, unreadCount))
 	if warnOnThreePlus && unreadCount >= 3 {
-		b.WriteString("\n⚠️ <b>Warning:</b> You have 3 or more unread chapters for this manga!")
+		b.WriteString(appcopy.Copy.Info.NewChapterAlertWarning)
 	}
-	b.WriteString("\nUse /start to mark chapters as read or explore other options.")
+	b.WriteString(fmt.Sprintf(appcopy.Copy.Info.NewChapterAlertFooter, appcopy.Copy.Commands.Start))
 	return b.String()
 }

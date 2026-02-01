@@ -7,6 +7,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -16,12 +17,12 @@ func (b *Bot) lastReadLine(mangaID int) string {
 		logger.LogMsg(logger.LogError, "Error getting last read chapter: %v", err)
 	}
 	if !hasLastRead {
-		return "Last read: (none)"
+		return appcopy.Copy.Info.LastReadNone
 	}
 	if strings.TrimSpace(lastReadTitle) == "" {
-		return fmt.Sprintf("Last read: Ch. %s", lastReadNum)
+		return fmt.Sprintf(appcopy.Copy.Info.LastReadNoTitle, lastReadNum)
 	}
-	return fmt.Sprintf("Last read: Ch. %s — %s", lastReadNum, lastReadTitle)
+	return fmt.Sprintf(appcopy.Copy.Info.LastReadWithTitle, lastReadNum, lastReadTitle)
 }
 
 func (b *Bot) lastReadLineHTML(mangaID int) string {
@@ -30,12 +31,12 @@ func (b *Bot) lastReadLineHTML(mangaID int) string {
 		logger.LogMsg(logger.LogError, "Error getting last read chapter: %v", err)
 	}
 	if !hasLastRead {
-		return "Last read: <b>(none)</b>"
+		return appcopy.Copy.Info.LastReadNoneHTML
 	}
 	if strings.TrimSpace(lastReadTitle) == "" {
-		return fmt.Sprintf("Last read: <b>Ch. %s</b>", html.EscapeString(lastReadNum))
+		return fmt.Sprintf(appcopy.Copy.Info.LastReadNoTitleHTML, html.EscapeString(lastReadNum))
 	}
-	return fmt.Sprintf("Last read: <b>Ch. %s</b> — %s", html.EscapeString(lastReadNum), html.EscapeString(lastReadTitle))
+	return fmt.Sprintf(appcopy.Copy.Info.LastReadWithTitleHTML, html.EscapeString(lastReadNum), html.EscapeString(lastReadTitle))
 }
 
 func bucketLabel(start, bucketSize int) string {

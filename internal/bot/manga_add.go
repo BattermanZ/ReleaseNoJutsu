@@ -9,6 +9,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -21,7 +22,7 @@ func (b *Bot) handleAddManga(chatID int64, userID int64, mangaID string) {
 	mangaData, err := b.mdClient.GetManga(ctx, mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga data. Please check the ID and try again.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CouldNotRetrieveManga)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -37,22 +38,22 @@ func (b *Bot) handleAddManga(chatID int64, userID int64, mangaID string) {
 			}
 		}
 		if title == "" {
-			title = "Title not available"
+			title = appcopy.Copy.Prompts.TitleNotAvailable
 		}
 	}
 
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "Title not available"
+		title = appcopy.Copy.Prompts.TitleNotAvailable
 	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Yes (MANGA Plus)", fmt.Sprintf("add_confirm:%s:1", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData("❌ No", fmt.Sprintf("add_confirm:%s:0", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesMangaPlus, fmt.Sprintf("add_confirm:%s:1", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.NoMangaPlus, fmt.Sprintf("add_confirm:%s:0", mangaID)),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📚 <b>%s</b>\n\nIs this a <b>MANGA Plus</b> manga?\n\nThis controls whether you get the “3+ unread chapters” warning.", html.EscapeString(title)))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Prompts.MangaPlusQuestion, html.EscapeString(title)))
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	b.sendMessageWithMainMenuButton(msg)
@@ -67,7 +68,7 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 	mangaData, err := b.mdClient.GetManga(ctx, mangaDexID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga data. Please check the ID and try again.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CouldNotRetrieveManga)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
@@ -83,24 +84,24 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 			}
 		}
 		if title == "" {
-			title = "Title not available"
+			title = appcopy.Copy.Prompts.TitleNotAvailable
 		}
 	}
 
 	mangaDBID, err := b.db.AddMangaWithMangaPlus(mangaDexID, title, isMangaPlus, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error inserting manga into database: %v", err)
-		msg := tgbotapi.NewMessage(chatID, "❌ Error adding the manga to the database. It may already exist or the ID is invalid.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CouldNotAddManga)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	// Full backfill so you can start from scratch (have the complete chapter list locally).
-	mangaPlusLabel := "no"
+	mangaPlusLabel := appcopy.Copy.Info.MangaPlusNoLabel
 	if isMangaPlus {
-		mangaPlusLabel = "yes"
+		mangaPlusLabel = appcopy.Copy.Info.MangaPlusYesLabel
 	}
-	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Added <b>%s</b>.\nMANGA Plus: <b>%s</b>\n\n🔄 Now syncing all chapters from MangaDex (this can take a bit)...", html.EscapeString(title), html.EscapeString(mangaPlusLabel)))
+	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncStartWithPlus, html.EscapeString(title), html.EscapeString(mangaPlusLabel)))
 	startMsg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(startMsg)
 
@@ -111,14 +112,14 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 		synced, _, err := b.updater.SyncAll(syncCtx, int(mangaDBID))
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error syncing chapters for %s: %v", title, err)
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for <b>%s</b>.\n\nYou can try again from the main menu: “Sync all chapters”.", html.EscapeString(title)))
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Errors.SyncFailed, html.EscapeString(title)))
 			msg.ParseMode = "HTML"
 			b.sendMessageWithMainMenuButton(msg)
 			return
 		}
 
 		unread, _ := b.db.CountUnreadChapters(int(mangaDBID))
-		done := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for <b>%s</b>.\nImported/updated %d chapter entries.\nUnread chapters: %d.\n\nUse “Mark chapter as read” to set your progress.", html.EscapeString(title), synced, unread))
+		done := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncCompleteWithHint, html.EscapeString(title), synced, unread))
 		done.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(done)
 	}()

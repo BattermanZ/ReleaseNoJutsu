@@ -8,6 +8,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 	"releasenojutsu/internal/updater"
 )
@@ -16,7 +17,7 @@ func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 	b.logAction(chatID, "Sync all chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
-	start := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Syncing all chapters for <b>%s</b> (this can take a bit)...", html.EscapeString(mangaTitle)))
+	start := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncStart, html.EscapeString(mangaTitle)))
 	start.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(start)
 
@@ -27,14 +28,14 @@ func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 		synced, _, err := b.updater.SyncAll(ctx, mangaID)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "SyncAll failed for manga %d: %v", mangaID, err)
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Sync failed for <b>%s</b>.", html.EscapeString(mangaTitle)))
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Errors.SyncFailedSimple, html.EscapeString(mangaTitle)))
 			msg.ParseMode = "HTML"
 			b.sendMessageWithMainMenuButton(msg)
 			return
 		}
 
 		unread, _ := b.db.CountUnreadChapters(mangaID)
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Sync complete for <b>%s</b>.\nImported/updated %d chapter entries.\nUnread chapters: %d.", html.EscapeString(mangaTitle), synced, unread))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncComplete, html.EscapeString(mangaTitle), synced, unread))
 		msg.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(msg)
 	}()
@@ -48,13 +49,13 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 
 	res, err := b.updater.UpdateOne(ctx, mangaID)
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not check MangaDex for updates right now. Please try again later.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotCheckUpdates)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	if len(res.NewChapters) == 0 {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ No new chapters for <b>%s</b>.", html.EscapeString(res.Title)))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.NoNewChapters, html.EscapeString(res.Title)))
 		msg.ParseMode = "HTML"
 		b.sendMessageWithMainMenuButton(msg)
 		return

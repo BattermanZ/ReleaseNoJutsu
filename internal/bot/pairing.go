@@ -11,6 +11,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"releasenojutsu/internal/appcopy"
 	"releasenojutsu/internal/logger"
 )
 
@@ -22,7 +23,7 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 		return false
 	}
 	if message.Chat.ID != message.From.ID || message.Chat.ID <= 0 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "⚠️ Pairing codes can only be used in a private chat with the bot.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.PairingPrivateOnly)
 		_, _ = b.api.Send(msg)
 		return true
 	}
@@ -33,7 +34,7 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 	}
 
 	if b.isAuthorized(message.From.ID) {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "✅ You’re already authorized.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.PairingAlreadyAuth)
 		_, _ = b.api.Send(msg)
 		return true
 	}
@@ -41,45 +42,45 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 	used, err := b.db.RedeemPairingCode(code, message.From.ID)
 	if err != nil {
 		logger.LogMsg(logger.LogWarning, "Pairing code redeem failed: %v", err)
-		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ That pairing code is invalid or expired.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.PairingInvalid)
 		_, _ = b.api.Send(msg)
 		return true
 	}
 	if !used {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ That pairing code is invalid or expired.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.PairingInvalid)
 		_, _ = b.api.Send(msg)
 		return true
 	}
 
 	_ = b.db.EnsureUser(message.From.ID, false)
 	b.authorizedCache[message.From.ID] = struct{}{}
-	msg := tgbotapi.NewMessage(message.Chat.ID, "✅ You’re now authorized! Use /start to open the menu.")
+	msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.PairingSuccess)
 	_, _ = b.api.Send(msg)
 	return true
 }
 
 func (b *Bot) handleGeneratePairingCode(chatID int64, userID int64) {
 	if !b.isAdmin(userID) {
-		msg := tgbotapi.NewMessage(chatID, "🚫 Only the admin can generate pairing codes.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.AdminOnly)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	code, err := generatePairingCode()
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not generate a pairing code right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotGeneratePair)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
 	expiresAt := time.Now().UTC().Add(48 * time.Hour)
 	if err := b.db.CreatePairingCode(code, userID, expiresAt); err != nil {
-		msg := tgbotapi.NewMessage(chatID, "❌ Could not store the pairing code right now.")
+		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotStorePair)
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔑 Pairing code: <b>%s</b>\nValid until: <b>%s</b> (UTC)\n\nTell your friend to send this code to the bot in a private chat.", html.EscapeString(code), html.EscapeString(expiresAt.Format(time.RFC1123))))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Prompts.PairingCodeGenerated, html.EscapeString(code), html.EscapeString(expiresAt.Format(time.RFC1123))))
 	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
