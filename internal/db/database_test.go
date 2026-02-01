@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+func ensureTestUser(t *testing.T, database *DB, chatID int64) {
+	t.Helper()
+	if err := database.EnsureUser(chatID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+}
+
 func TestEnsureUser_IsIdempotent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := New(dbPath)
@@ -17,17 +24,13 @@ func TestEnsureUser_IsIdempotent(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
 	chatID := int64(12345)
-	if err := database.EnsureUser(chatID); err != nil {
-		t.Fatalf("EnsureUser(1): %v", err)
-	}
-	if err := database.EnsureUser(chatID); err != nil {
-		t.Fatalf("EnsureUser(2): %v", err)
-	}
+	ensureTestUser(t, database, chatID)
+	ensureTestUser(t, database, chatID)
 
 	rows, err := database.GetAllUsers()
 	if err != nil {
@@ -42,8 +45,8 @@ func TestEnsureUser_IsIdempotent(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("rows.Err(): %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("users count=%d, want 1", count)
+	if count != 2 {
+		t.Fatalf("users count=%d, want 2 (admin + user)", count)
 	}
 }
 
@@ -58,11 +61,12 @@ func TestListManga_DoesNotHoldConnectionOpen(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
-	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
@@ -101,11 +105,12 @@ func TestGetLastReadChapterAndListUnreadChapters(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
-	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
@@ -173,11 +178,12 @@ func TestMarkAllChaptersAsRead(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
-	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
@@ -214,6 +220,47 @@ func TestMarkAllChaptersAsRead(t *testing.T) {
 	}
 }
 
+func TestPairingCodes_OneTimeAndExpiry(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
+
+	code := "ABCD-1234"
+	expires := time.Now().UTC().Add(1 * time.Hour)
+	if err := database.CreatePairingCode(code, 1, expires); err != nil {
+		t.Fatalf("CreatePairingCode(): %v", err)
+	}
+
+	ok, err := database.RedeemPairingCode(code, 42)
+	if err != nil || !ok {
+		t.Fatalf("RedeemPairingCode(ok) = (%v,%v), want (true,nil)", ok, err)
+	}
+
+	ok, err = database.RedeemPairingCode(code, 43)
+	if err != nil || ok {
+		t.Fatalf("RedeemPairingCode(second) = (%v,%v), want (false,nil)", ok, err)
+	}
+
+	expired := "FFFF-0000"
+	if err := database.CreatePairingCode(expired, 1, time.Now().UTC().Add(-1*time.Hour)); err != nil {
+		t.Fatalf("CreatePairingCode(expired): %v", err)
+	}
+	ok, err = database.RedeemPairingCode(expired, 44)
+	if err != nil || ok {
+		t.Fatalf("RedeemPairingCode(expired) = (%v,%v), want (false,nil)", ok, err)
+	}
+}
+
 func TestListUnreadBucketStartsAndRangeListing(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := New(dbPath)
@@ -225,11 +272,12 @@ func TestListUnreadBucketStartsAndRangeListing(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
-	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
@@ -314,11 +362,12 @@ func TestListReadBucketStartsAndRangeListing(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(1); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
 
-	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super")
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}

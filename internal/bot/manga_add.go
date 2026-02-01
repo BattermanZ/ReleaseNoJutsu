@@ -12,7 +12,7 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
-func (b *Bot) handleAddManga(chatID int64, mangaID string) {
+func (b *Bot) handleAddManga(chatID int64, userID int64, mangaID string) {
 	b.logAction(chatID, "Add manga", mangaID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -58,7 +58,7 @@ func (b *Bot) handleAddManga(chatID int64, mangaID string) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) confirmAddManga(chatID int64, mangaDexID string, isMangaPlus bool) {
+func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isMangaPlus bool) {
 	b.logAction(chatID, "Confirm add manga", fmt.Sprintf("%s (MANGA Plus=%t)", mangaDexID, isMangaPlus))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -87,7 +87,7 @@ func (b *Bot) confirmAddManga(chatID int64, mangaDexID string, isMangaPlus bool)
 		}
 	}
 
-	mangaDBID, err := b.db.AddMangaWithMangaPlus(mangaDexID, title, isMangaPlus)
+	mangaDBID, err := b.db.AddMangaWithMangaPlus(mangaDexID, title, isMangaPlus, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error inserting manga into database: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Error adding the manga to the database. It may already exist or the ID is invalid.")

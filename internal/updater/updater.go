@@ -34,6 +34,7 @@ type Updater struct {
 
 type Result struct {
 	MangaID     int
+	UserID      int64
 	MangaDexID  string
 	Title       string
 	NewChapters []mangadex.ChapterInfo
@@ -156,11 +157,14 @@ func (u *Updater) UpdateAll(ctx context.Context) ([]Result, error) {
 		if err != nil {
 			res = Result{
 				MangaID:    m.ID,
+				UserID:     m.UserID,
 				MangaDexID: m.MangaDexID,
 				Title:      m.Title,
 				LastSeenAt: m.LastSeenAt,
 				Err:        err,
 			}
+		} else {
+			res.UserID = m.UserID
 		}
 		results = append(results, res)
 	}

@@ -58,8 +58,12 @@ func main() {
 		logger.LogMsg(logger.LogError, "Failed to create tables: %v", err)
 		return
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(cfg.AdminUserID); err != nil {
 		logger.LogMsg(logger.LogError, "Failed to migrate database: %v", err)
+		return
+	}
+	if err := database.EnsureUser(cfg.AdminUserID, true); err != nil {
+		logger.LogMsg(logger.LogError, "Failed to ensure admin user: %v", err)
 		return
 	}
 
@@ -79,7 +83,7 @@ func main() {
 
 	appBot := bot.New(api, database, mdUpdateClient, cfg, upd)
 
-	scheduler := cron.NewScheduler(database, notifier, upd, cfg.AllowedUsers)
+	scheduler := cron.NewScheduler(database, notifier, upd)
 	go scheduler.Run(ctx)
 
 	if err := appBot.Run(ctx); err != nil {

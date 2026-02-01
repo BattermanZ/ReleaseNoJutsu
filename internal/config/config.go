@@ -14,6 +14,7 @@ import (
 type Config struct {
 	TelegramBotToken string
 	AllowedUsers     []int64
+	AdminUserID      int64
 	DatabasePath     string
 }
 
@@ -45,6 +46,7 @@ func Load() (*Config, error) {
 	return &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 		AllowedUsers:     allowedUsers,
+		AdminUserID:      allowedUsers[0],
 		DatabasePath:     "database/ReleaseNoJutsu.db",
 	}, nil
 }
@@ -55,6 +57,9 @@ func (c *Config) Validate() error {
 	}
 	if len(c.AllowedUsers) == 0 {
 		return fmt.Errorf("TELEGRAM_ALLOWED_USERS is required (at least 1 user id)")
+	}
+	if c.AdminUserID <= 0 {
+		return fmt.Errorf("admin user id is invalid")
 	}
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return fmt.Errorf("database path is required")

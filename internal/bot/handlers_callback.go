@@ -27,7 +27,7 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 			logger.LogMsg(logger.LogError, "Error converting isMangaPlus flag: %v", err)
 			return
 		}
-		b.confirmAddManga(query.Message.Chat.ID, mangaDexID, isPlusInt != 0)
+		b.confirmAddManga(query.Message.Chat.ID, query.From.ID, mangaDexID, isPlusInt != 0)
 	case "add_manga":
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, `📚 *Add a New Manga*
 Please send the MangaDex URL or ID of the manga you want to track.`)
@@ -35,15 +35,17 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "MangaDex ID"}
 		b.sendMessageWithMainMenuButton(msg)
 	case "list_manga":
-		b.handleListManga(query.Message.Chat.ID)
+		b.handleListManga(query.Message.Chat.ID, query.From.ID)
 	case "check_new":
-		b.sendMangaSelectionMenu(query.Message.Chat.ID, "check_new")
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, query.From.ID, "check_new")
 	case "mark_read":
-		b.sendMangaSelectionMenu(query.Message.Chat.ID, "mark_read")
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, query.From.ID, "mark_read")
 	case "list_read":
-		b.sendMangaSelectionMenu(query.Message.Chat.ID, "list_read")
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, query.From.ID, "list_read")
 	case "sync_all":
-		b.sendMangaSelectionMenu(query.Message.Chat.ID, "sync_all")
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, query.From.ID, "sync_all")
+	case "gen_pair":
+		b.handleGeneratePairingCode(query.Message.Chat.ID, query.From.ID)
 	case "select_manga": // This case is for manga selection menus (check_new, mark_read, list_read, remove_manga)
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for select_manga: %s", query.Data)
@@ -55,7 +57,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			return
 		}
 		nextAction := parts[2]
-		b.handleMangaSelection(query.Message.Chat.ID, mangaID, nextAction)
+		b.handleMangaSelection(query.Message.Chat.ID, query.From.ID, mangaID, nextAction)
 	case "manga_action": // This case is for actions directly from the manga list
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for manga_action: %s", query.Data)
@@ -67,7 +69,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			return
 		}
 		action := parts[2]
-		b.handleMangaSelection(query.Message.Chat.ID, mangaID, action)
+		b.handleMangaSelection(query.Message.Chat.ID, query.From.ID, mangaID, action)
 	case "mark_chapter":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mark_chapter: %s", query.Data)
@@ -79,7 +81,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			return
 		}
 		chapterNumber := parts[2]
-		b.handleMarkChapterAsRead(query.Message.Chat.ID, mangaID, chapterNumber)
+		b.handleMarkChapterAsRead(query.Message.Chat.ID, query.From.ID, mangaID, chapterNumber)
 	case "mr_pick":
 		if len(parts) < 4 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mr_pick: %s", query.Data)
@@ -102,11 +104,11 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		}
 		switch scale {
 		case 1000:
-			b.sendMarkReadHundredsMenu(query.Message.Chat.ID, mangaID, start, false)
+			b.sendMarkReadHundredsMenu(query.Message.Chat.ID, query.From.ID, mangaID, start, false)
 		case 100:
-			b.sendMarkReadTensMenu(query.Message.Chat.ID, mangaID, start, false)
+			b.sendMarkReadTensMenu(query.Message.Chat.ID, query.From.ID, mangaID, start, false)
 		case 10:
-			b.sendMarkReadChaptersMenuPage(query.Message.Chat.ID, mangaID, start, false, 0)
+			b.sendMarkReadChaptersMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, start, false, 0)
 		default:
 			logger.LogMsg(logger.LogError, "Unknown mr_pick scale: %d", scale)
 		}
@@ -125,7 +127,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting page: %v", err)
 			return
 		}
-		b.sendMarkReadThousandsMenuPage(query.Message.Chat.ID, mangaID, page)
+		b.sendMarkReadThousandsMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, page)
 	case "mr_chpage":
 		if len(parts) < 5 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mr_chpage: %s", query.Data)
@@ -151,7 +153,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting page: %v", err)
 			return
 		}
-		b.sendMarkReadChaptersMenuPage(query.Message.Chat.ID, mangaID, tenStart, intToBool(rootInt), page)
+		b.sendMarkReadChaptersMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, tenStart, intToBool(rootInt), page)
 	case "mr_back_root":
 		if len(parts) < 2 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mr_back_root: %s", query.Data)
@@ -162,7 +164,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
 			return
 		}
-		b.sendMarkReadStartMenu(query.Message.Chat.ID, mangaID)
+		b.sendMarkReadStartMenu(query.Message.Chat.ID, query.From.ID, mangaID)
 	case "mr_back_hundreds":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mr_back_hundreds: %s", query.Data)
@@ -178,7 +180,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting hundredStart: %v", err)
 			return
 		}
-		b.sendMarkReadHundredsMenu(query.Message.Chat.ID, mangaID, thousandBucketStart(hundredStart), false)
+		b.sendMarkReadHundredsMenu(query.Message.Chat.ID, query.From.ID, mangaID, thousandBucketStart(hundredStart), false)
 	case "mr_back_tens":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mr_back_tens: %s", query.Data)
@@ -194,7 +196,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting tenStart: %v", err)
 			return
 		}
-		b.sendMarkReadTensMenu(query.Message.Chat.ID, mangaID, hundredBucketStart(tenStart), false)
+		b.sendMarkReadTensMenu(query.Message.Chat.ID, query.From.ID, mangaID, hundredBucketStart(tenStart), false)
 	case "mu_pick":
 		if len(parts) < 4 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mu_pick: %s", query.Data)
@@ -217,11 +219,11 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 		}
 		switch scale {
 		case 1000:
-			b.sendMarkUnreadHundredsMenu(query.Message.Chat.ID, mangaID, start, false)
+			b.sendMarkUnreadHundredsMenu(query.Message.Chat.ID, query.From.ID, mangaID, start, false)
 		case 100:
-			b.sendMarkUnreadTensMenu(query.Message.Chat.ID, mangaID, start, false)
+			b.sendMarkUnreadTensMenu(query.Message.Chat.ID, query.From.ID, mangaID, start, false)
 		case 10:
-			b.sendMarkUnreadChaptersMenuPage(query.Message.Chat.ID, mangaID, start, false, 0)
+			b.sendMarkUnreadChaptersMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, start, false, 0)
 		default:
 			logger.LogMsg(logger.LogError, "Unknown mu_pick scale: %d", scale)
 		}
@@ -240,7 +242,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting page: %v", err)
 			return
 		}
-		b.sendMarkUnreadThousandsMenuPage(query.Message.Chat.ID, mangaID, page)
+		b.sendMarkUnreadThousandsMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, page)
 	case "mu_chpage":
 		if len(parts) < 5 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mu_chpage: %s", query.Data)
@@ -266,7 +268,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting page: %v", err)
 			return
 		}
-		b.sendMarkUnreadChaptersMenuPage(query.Message.Chat.ID, mangaID, tenStart, intToBool(rootInt), page)
+		b.sendMarkUnreadChaptersMenuPage(query.Message.Chat.ID, query.From.ID, mangaID, tenStart, intToBool(rootInt), page)
 	case "mu_back_root":
 		if len(parts) < 2 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mu_back_root: %s", query.Data)
@@ -277,7 +279,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting manga ID: %v", err)
 			return
 		}
-		b.sendMarkUnreadStartMenu(query.Message.Chat.ID, mangaID)
+		b.sendMarkUnreadStartMenu(query.Message.Chat.ID, query.From.ID, mangaID)
 	case "mu_back_hundreds":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mu_back_hundreds: %s", query.Data)
@@ -293,7 +295,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting hundredStart: %v", err)
 			return
 		}
-		b.sendMarkUnreadHundredsMenu(query.Message.Chat.ID, mangaID, thousandBucketStart(hundredStart), false)
+		b.sendMarkUnreadHundredsMenu(query.Message.Chat.ID, query.From.ID, mangaID, thousandBucketStart(hundredStart), false)
 	case "mu_back_tens":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for mu_back_tens: %s", query.Data)
@@ -309,7 +311,7 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			logger.LogMsg(logger.LogError, "Error converting tenStart: %v", err)
 			return
 		}
-		b.sendMarkUnreadTensMenu(query.Message.Chat.ID, mangaID, hundredBucketStart(tenStart), false)
+		b.sendMarkUnreadTensMenu(query.Message.Chat.ID, query.From.ID, mangaID, hundredBucketStart(tenStart), false)
 	case "unread_chapter":
 		if len(parts) < 3 {
 			logger.LogMsg(logger.LogError, "Invalid callback data for unread_chapter: %s", query.Data)
@@ -321,9 +323,9 @@ Please send the MangaDex URL or ID of the manga you want to track.`)
 			return
 		}
 		chapterNumber := parts[2]
-		b.handleMarkChapterAsUnread(query.Message.Chat.ID, mangaID, chapterNumber)
+		b.handleMarkChapterAsUnread(query.Message.Chat.ID, query.From.ID, mangaID, chapterNumber)
 	case "remove_manga":
-		b.sendMangaSelectionMenu(query.Message.Chat.ID, "remove_manga")
+		b.sendMangaSelectionMenu(query.Message.Chat.ID, query.From.ID, "remove_manga")
 	case "main_menu":
 		b.sendMainMenu(query.Message.Chat.ID)
 	}

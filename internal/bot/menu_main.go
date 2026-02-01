@@ -13,7 +13,7 @@ import (
 func (b *Bot) sendMainMenu(chatID int64) {
 	b.logAction(chatID, "Sent main menu", "")
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📚 Add manga", "add_manga"),
 		),
@@ -35,7 +35,15 @@ func (b *Bot) sendMainMenu(chatID int64) {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove manga", "remove_manga"),
 		),
-	)
+	}
+
+	if b.isAdmin(chatID) {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔑 Generate pairing code", "gen_pair"),
+		))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 
 	welcomeMessage := `👋 *Welcome to ReleaseNoJutsu!*`
 	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
@@ -94,6 +102,8 @@ This bot helps you track your favorite manga series. It automatically checks for
 
 *How to add a manga:*
 Simply send the MangaDex URL (e.g., https://mangadex.org/title/123e4567-e89b-12d3-a456-426614174000) or the MangaDex ID (e.g., 123e4567-e89b-12d3-a456-426614174000) directly to the bot. The bot will automatically detect and add the manga.
+
+If you need access, ask the admin for a pairing code and send it to the bot in a private chat.
 
 If you need further assistance, feel free to /start and explore the menu options!`
 	msg := tgbotapi.NewMessage(chatID, helpText)

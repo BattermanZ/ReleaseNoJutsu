@@ -20,26 +20,16 @@ type Scheduler struct {
 	Notifier notify.Notifier
 	Updater  *updater.Updater
 	cron     *cron.Cron
-
-	allowedUsers map[int64]struct{}
-	running      int32
+	running  int32
 }
 
 // NewScheduler creates a new scheduler.
 
-func NewScheduler(db *db.DB, notifier notify.Notifier, upd *updater.Updater, allowedUsers []int64) *Scheduler {
-	allow := make(map[int64]struct{}, len(allowedUsers))
-	for _, id := range allowedUsers {
-		if id <= 0 {
-			continue
-		}
-		allow[id] = struct{}{}
-	}
+func NewScheduler(db *db.DB, notifier notify.Notifier, upd *updater.Updater) *Scheduler {
 	return &Scheduler{
-		DB:           db,
-		Notifier:     notifier,
-		Updater:      upd,
-		allowedUsers: allow,
+		DB:       db,
+		Notifier: notifier,
+		Updater:  upd,
 	}
 }
 
@@ -87,22 +77,6 @@ func (s *Scheduler) performUpdate(ctx context.Context) {
 		logger.LogMsg(logger.LogError, "Error querying manga for scheduled update: %v", err)
 		return
 	}
-	users, err := s.DB.ListUsers()
-	if err != nil {
-		logger.LogMsg(logger.LogError, "Error querying user chat IDs: %v", err)
-		return
-	}
-	// Hardening: only send scheduled notifications to private chats belonging to allowed user IDs.
-	// (In private chats, Chat.ID == User.ID. Group/channel chat IDs are negative/unaligned and can leak info.)
-	filtered := users[:0]
-	for _, chatID := range users {
-		if _, ok := s.allowedUsers[chatID]; !ok {
-			continue
-		}
-		filtered = append(filtered, chatID)
-	}
-	users = filtered
-
 	for _, res := range results {
 		if res.Err != nil {
 			logger.LogMsg(logger.LogError, "Update failed for manga %s (%s): %v", res.Title, res.MangaDexID, res.Err)
@@ -117,10 +91,12 @@ func (s *Scheduler) performUpdate(ctx context.Context) {
 			isMangaPlus = false
 		}
 		message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount, isMangaPlus)
-		for _, chatID := range users {
-			if err := s.Notifier.SendHTML(chatID, message); err != nil {
-				logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, err)
-			}
+		chatID := res.UserID
+		if chatID == 0 {
+			continue
+		}
+		if err := s.Notifier.SendHTML(chatID, message); err != nil {
+			logger.LogMsg(logger.LogError, "Error sending new chapters notification to chat ID %d: %v", chatID, err)
 		}
 	}
 

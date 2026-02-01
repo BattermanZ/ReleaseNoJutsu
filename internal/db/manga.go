@@ -6,22 +6,22 @@ import (
 	"time"
 )
 
-func (db *DB) AddManga(mangaID, title string) (int64, error) {
-	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?)",
-		mangaID, title, 0, time.Now().UTC())
+func (db *DB) AddManga(mangaID, title string, userID int64) (int64, error) {
+	result, err := db.Exec("INSERT INTO manga (user_id, mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?, ?)",
+		userID, mangaID, title, 0, time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
 }
 
-func (db *DB) AddMangaWithMangaPlus(mangaID, title string, isMangaPlus bool) (int64, error) {
+func (db *DB) AddMangaWithMangaPlus(mangaID, title string, isMangaPlus bool, userID int64) (int64, error) {
 	val := 0
 	if isMangaPlus {
 		val = 1
 	}
-	result, err := db.Exec("INSERT INTO manga (mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?)",
-		mangaID, title, val, time.Now().UTC())
+	result, err := db.Exec("INSERT INTO manga (user_id, mangadex_id, title, is_manga_plus, last_checked) VALUES (?, ?, ?, ?, ?)",
+		userID, mangaID, title, val, time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
@@ -73,7 +73,11 @@ func (db *DB) UpdateMangaLastSeenAt(mangaID int, seenAt time.Time) error {
 }
 
 func (db *DB) GetAllManga() (*sql.Rows, error) {
-	return db.Query("SELECT id, mangadex_id, title, is_manga_plus, last_checked, last_seen_at, last_read_number, unread_count FROM manga")
+	return db.Query("SELECT id, user_id, mangadex_id, title, is_manga_plus, last_checked, last_seen_at, last_read_number, unread_count FROM manga")
+}
+
+func (db *DB) GetAllMangaByUser(userID int64) (*sql.Rows, error) {
+	return db.Query("SELECT id, user_id, mangadex_id, title, is_manga_plus, last_checked, last_seen_at, last_read_number, unread_count FROM manga WHERE user_id = ? ORDER BY id", userID)
 }
 
 func (db *DB) ListManga() ([]Manga, error) {
@@ -89,7 +93,7 @@ func (db *DB) ListManga() ([]Manga, error) {
 		var isMangaPlus int
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
-		if err := rows.Scan(&row.ID, &row.MangaDexID, &row.Title, &isMangaPlus, &row.LastChecked, &lastSeenAt, &lastReadNumber, &row.UnreadCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.UserID, &row.MangaDexID, &row.Title, &isMangaPlus, &row.LastChecked, &lastSeenAt, &lastReadNumber, &row.UnreadCount); err != nil {
 			return nil, err
 		}
 		row.IsMangaPlus = isMangaPlus != 0
@@ -107,7 +111,7 @@ func (db *DB) ListManga() ([]Manga, error) {
 	return manga, nil
 }
 
-func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
+func (db *DB) GetMangaDetails(mangaID int, userID int64) (MangaDetails, error) {
 	var (
 		lastCheckedStr string
 		lastSeenAtStr  string
@@ -121,6 +125,7 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 	err := db.QueryRow(`
 		SELECT
 			m.id,
+			m.user_id,
 			m.mangadex_id,
 			m.title,
 			m.is_manga_plus,
@@ -133,9 +138,10 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 			(SELECT MIN(CAST(c.chapter_number AS REAL)) FROM chapters c WHERE c.manga_id = m.id AND c.chapter_number GLOB '[0-9]*' AND c.chapter_number NOT GLOB '*[^0-9.]*' AND c.chapter_number NOT GLOB '*.*.*'),
 			(SELECT MAX(CAST(c.chapter_number AS REAL)) FROM chapters c WHERE c.manga_id = m.id AND c.chapter_number GLOB '[0-9]*' AND c.chapter_number NOT GLOB '*[^0-9.]*' AND c.chapter_number NOT GLOB '*.*.*')
 		FROM manga m
-		WHERE m.id = ?
-	`, mangaID).Scan(
+		WHERE m.id = ? AND m.user_id = ?
+	`, mangaID, userID).Scan(
 		&d.ID,
+		&d.UserID,
 		&d.MangaDexID,
 		&d.Title,
 		&isMangaPlus,
@@ -181,13 +187,13 @@ func (db *DB) GetMangaDetails(mangaID int) (MangaDetails, error) {
 	return d, nil
 }
 
-func (db *DB) GetMangaTitle(mangaID int) (string, error) {
+func (db *DB) GetMangaTitle(mangaID int, userID int64) (string, error) {
 	var title string
-	err := db.QueryRow("SELECT title FROM manga WHERE id = ?", mangaID).Scan(&title)
+	err := db.QueryRow("SELECT title FROM manga WHERE id = ? AND user_id = ?", mangaID, userID).Scan(&title)
 	return title, err
 }
 
-func (db *DB) DeleteManga(mangaID int) error {
+func (db *DB) DeleteManga(mangaID int, userID int64) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -204,16 +210,28 @@ func (db *DB) DeleteManga(mangaID int) error {
 	}()
 
 	// Delete associated chapters first
-	_, err = tx.Exec("DELETE FROM chapters WHERE manga_id = ?", mangaID)
+	_, err = tx.Exec("DELETE FROM chapters WHERE manga_id = ? AND manga_id IN (SELECT id FROM manga WHERE id = ? AND user_id = ?)", mangaID, mangaID, userID)
 	if err != nil {
 		return err
 	}
 
 	// Delete the manga
-	_, err = tx.Exec("DELETE FROM manga WHERE id = ?", mangaID)
+	_, err = tx.Exec("DELETE FROM manga WHERE id = ? AND user_id = ?", mangaID, userID)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (db *DB) MangaBelongsToUser(mangaID int, userID int64) (bool, error) {
+	var id int
+	err := db.QueryRow("SELECT id FROM manga WHERE id = ? AND user_id = ?", mangaID, userID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

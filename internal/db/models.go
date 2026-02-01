@@ -4,6 +4,7 @@ import "time"
 
 type Manga struct {
 	ID             int
+	UserID         int64
 	MangaDexID     string
 	Title          string
 	IsMangaPlus    bool
@@ -30,6 +31,7 @@ type ChapterListItem struct {
 
 type MangaDetails struct {
 	ID                   int
+	UserID               int64
 	MangaDexID           string
 	Title                string
 	IsMangaPlus          bool

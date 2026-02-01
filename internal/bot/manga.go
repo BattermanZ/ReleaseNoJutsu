@@ -12,10 +12,10 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
-func (b *Bot) handleListManga(chatID int64) {
+func (b *Bot) handleListManga(chatID int64, userID int64) {
 	b.logAction(chatID, "List manga", "")
 
-	rows, err := b.db.GetAllManga()
+	rows, err := b.db.GetAllMangaByUser(userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Unable to retrieve your manga list. Please try again.")
@@ -30,13 +30,14 @@ func (b *Bot) handleListManga(chatID int64) {
 	count := 0
 	for rows.Next() {
 		var id int
+		var rowUserID int64
 		var mangadexID, title string
 		var isMangaPlus int
 		var lastChecked string
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
 		var unreadCount int
-		err := rows.Scan(&id, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
+		err := rows.Scan(&id, &rowUserID, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
@@ -69,8 +70,8 @@ func (b *Bot) handleListManga(chatID int64) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
-	rows, err := b.db.GetAllManga()
+func (b *Bot) sendMangaSelectionMenu(chatID int64, userID int64, nextAction string) {
+	rows, err := b.db.GetAllMangaByUser(userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		return
@@ -80,13 +81,14 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, nextAction string) {
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for rows.Next() {
 		var id int
+		var rowUserID int64
 		var mangadexID, title string
 		var isMangaPlus int
 		var lastChecked string
 		var lastSeenAt sql.NullTime
 		var lastReadNumber sql.NullFloat64
 		var unreadCount int
-		err := rows.Scan(&id, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
+		err := rows.Scan(&id, &rowUserID, &mangadexID, &title, &isMangaPlus, &lastChecked, &lastSeenAt, &lastReadNumber, &unreadCount)
 		if err != nil {
 			logger.LogMsg(logger.LogError, "Error scanning manga row: %v", err)
 			continue
@@ -133,37 +135,49 @@ Choose a manga to proceed.`
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) handleMangaSelection(chatID int64, mangaID int, nextAction string) {
+func (b *Bot) handleMangaSelection(chatID int64, userID int64, mangaID int, nextAction string) {
+	allowed, err := b.db.MangaBelongsToUser(mangaID, userID)
+	if err != nil {
+		logger.LogMsg(logger.LogError, "Error checking manga ownership: %v", err)
+		msg := tgbotapi.NewMessage(chatID, "❌ Could not access that manga right now.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
+	if !allowed {
+		msg := tgbotapi.NewMessage(chatID, "🚫 You don’t have access to that manga.")
+		b.sendMessageWithMainMenuButton(msg)
+		return
+	}
 	switch nextAction {
 	case "menu":
-		b.sendMangaActionMenu(chatID, mangaID)
+		b.sendMangaActionMenu(chatID, userID, mangaID)
 	case "check_new":
 		b.handleCheckNewChapters(chatID, mangaID)
 	case "mark_read":
-		b.sendMarkReadStartMenu(chatID, mangaID)
+		b.sendMarkReadStartMenu(chatID, userID, mangaID)
 	case "mark_all_read":
-		b.sendMarkAllReadConfirm(chatID, mangaID)
+		b.sendMarkAllReadConfirm(chatID, userID, mangaID)
 	case "mark_all_read_yes":
-		b.handleMarkAllRead(chatID, mangaID)
+		b.handleMarkAllRead(chatID, userID, mangaID)
 	case "sync_all":
-		b.handleSyncAllChapters(chatID, mangaID)
+		b.handleSyncAllChapters(chatID, userID, mangaID)
 	case "list_read":
-		b.sendMarkUnreadStartMenu(chatID, mangaID)
+		b.sendMarkUnreadStartMenu(chatID, userID, mangaID)
 	case "details":
-		b.handleMangaDetails(chatID, mangaID)
+		b.handleMangaDetails(chatID, userID, mangaID)
 	case "toggle_plus":
-		b.toggleMangaPlus(chatID, mangaID)
+		b.toggleMangaPlus(chatID, userID, mangaID)
 	case "remove_manga":
-		b.sendRemoveMangaConfirm(chatID, mangaID)
+		b.sendRemoveMangaConfirm(chatID, userID, mangaID)
 	case "remove_manga_yes":
-		b.handleRemoveManga(chatID, mangaID)
+		b.handleRemoveManga(chatID, userID, mangaID)
 	default:
 		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
 	}
 }
 
-func (b *Bot) sendMangaActionMenu(chatID int64, mangaID int) {
-	title, err := b.db.GetMangaTitle(mangaID)
+func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not load that manga right now.")
@@ -210,8 +224,8 @@ func (b *Bot) sendMangaActionMenu(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendRemoveMangaConfirm(chatID int64, mangaID int) {
-	title, err := b.db.GetMangaTitle(mangaID)
+func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga details for removal. Please try again.")
@@ -230,8 +244,8 @@ func (b *Bot) sendRemoveMangaConfirm(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkAllReadConfirm(chatID int64, mangaID int) {
-	title, err := b.db.GetMangaTitle(mangaID)
+func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int) {
+	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not load that manga right now.")
@@ -250,7 +264,7 @@ func (b *Bot) sendMarkAllReadConfirm(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) handleMarkAllRead(chatID int64, mangaID int) {
+func (b *Bot) handleMarkAllRead(chatID int64, userID int64, mangaID int) {
 	b.logAction(chatID, "Mark all chapters as read", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	if err := b.db.MarkAllChaptersAsRead(mangaID); err != nil {
@@ -260,7 +274,7 @@ func (b *Bot) handleMarkAllRead(chatID int64, mangaID int) {
 		return
 	}
 
-	title, _ := b.db.GetMangaTitle(mangaID)
+	title, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLineHTML(mangaID)
 	unread, _ := b.db.CountUnreadChapters(mangaID)
 
@@ -269,10 +283,10 @@ func (b *Bot) handleMarkAllRead(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
+func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
 	b.logAction(chatID, "Manga details", fmt.Sprintf("Manga ID: %d", mangaID))
 
-	d, err := b.db.GetMangaDetails(mangaID)
+	d, err := b.db.GetMangaDetails(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga details: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not load manga details right now.")
@@ -324,7 +338,7 @@ func (b *Bot) handleMangaDetails(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) toggleMangaPlus(chatID int64, mangaID int) {
+func (b *Bot) toggleMangaPlus(chatID int64, userID int64, mangaID int) {
 	cur, err := b.db.IsMangaPlus(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga plus flag: %v", err)
@@ -340,7 +354,7 @@ func (b *Bot) toggleMangaPlus(chatID int64, mangaID int) {
 		return
 	}
 
-	title, _ := b.db.GetMangaTitle(mangaID)
+	title, _ := b.db.GetMangaTitle(mangaID, userID)
 	state := "disabled"
 	if next {
 		state = "enabled"
@@ -350,10 +364,10 @@ func (b *Bot) toggleMangaPlus(chatID int64, mangaID int) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) handleRemoveManga(chatID int64, mangaID int) {
+func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
 	b.logAction(chatID, "Remove manga", fmt.Sprintf("Manga ID: %d", mangaID))
 
-	mangaTitle, err := b.db.GetMangaTitle(mangaID)
+	mangaTitle, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Could not retrieve manga details for removal. Please try again.")
@@ -361,7 +375,7 @@ func (b *Bot) handleRemoveManga(chatID int64, mangaID int) {
 		return
 	}
 
-	err = b.db.DeleteManga(mangaID)
+	err = b.db.DeleteManga(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error deleting manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, "❌ Error removing the manga from the database. Please try again.")

@@ -10,7 +10,7 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
-func (b *Bot) handleMarkChapterAsRead(chatID int64, mangaID int, chapterNumber string) {
+func (b *Bot) handleMarkChapterAsRead(chatID int64, userID int64, mangaID int, chapterNumber string) {
 	b.logAction(chatID, "Mark chapter as read", fmt.Sprintf("Manga ID: %d, Chapter: %s", mangaID, chapterNumber))
 
 	err := b.db.MarkChapterAsRead(mangaID, chapterNumber)
@@ -21,14 +21,14 @@ func (b *Bot) handleMarkChapterAsRead(chatID int64, mangaID int, chapterNumber s
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	result := fmt.Sprintf("✅ Updated!\nAll chapters up to Chapter <b>%s</b> of <b>%s</b> have been marked as read.", html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
 	msg := tgbotapi.NewMessage(chatID, result)
 	msg.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
+func (b *Bot) sendMarkReadStartMenu(chatID int64, userID int64, mangaID int) {
 	unreadCount, err := b.db.CountUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting unread chapters: %v", err)
@@ -37,7 +37,7 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLine(mangaID)
 
 	if unreadCount == 0 {
@@ -47,7 +47,7 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 	}
 
 	if unreadCount <= 10 {
-		b.sendMarkReadDirectChaptersMenu(chatID, mangaID, unreadCount, mangaTitle, lastReadLine)
+		b.sendMarkReadDirectChaptersMenu(chatID, userID, mangaID, unreadCount, mangaTitle, lastReadLine)
 		return
 	}
 
@@ -59,7 +59,7 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 		return
 	}
 	if len(thousands) > 1 {
-		b.sendMarkReadThousandsMenu(chatID, mangaID, thousands, unreadCount, mangaTitle, lastReadLine, 0)
+		b.sendMarkReadThousandsMenu(chatID, userID, mangaID, thousands, unreadCount, mangaTitle, lastReadLine, 0)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 		return
 	}
 	if len(hundreds) > 1 {
-		b.sendMarkReadHundredsMenu(chatID, mangaID, thousandStart, true)
+		b.sendMarkReadHundredsMenu(chatID, userID, mangaID, thousandStart, true)
 		return
 	}
 
@@ -95,7 +95,7 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 		return
 	}
 	if len(tens) > 1 {
-		b.sendMarkReadTensMenu(chatID, mangaID, hundredStart, true)
+		b.sendMarkReadTensMenu(chatID, userID, mangaID, hundredStart, true)
 		return
 	}
 
@@ -103,10 +103,10 @@ func (b *Bot) sendMarkReadStartMenu(chatID int64, mangaID int) {
 	if len(tens) == 1 {
 		tenStart = tens[0]
 	}
-	b.sendMarkReadChaptersMenuPage(chatID, mangaID, tenStart, true, 0)
+	b.sendMarkReadChaptersMenuPage(chatID, userID, mangaID, tenStart, true, 0)
 }
 
-func (b *Bot) sendMarkReadDirectChaptersMenu(chatID int64, mangaID int, unreadCount int, mangaTitle, lastReadLine string) {
+func (b *Bot) sendMarkReadDirectChaptersMenu(chatID int64, userID int64, mangaID int, unreadCount int, mangaTitle, lastReadLine string) {
 	chapters, err := b.db.ListUnreadChapters(mangaID, 10, 0)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error listing unread chapters: %v", err)
@@ -131,7 +131,7 @@ func (b *Bot) sendMarkReadDirectChaptersMenu(chatID int64, mangaID int, unreadCo
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkReadThousandsMenuPage(chatID int64, mangaID int, page int) {
+func (b *Bot) sendMarkReadThousandsMenuPage(chatID int64, userID int64, mangaID int, page int) {
 	unreadCount, err := b.db.CountUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting unread chapters: %v", err)
@@ -140,7 +140,7 @@ func (b *Bot) sendMarkReadThousandsMenuPage(chatID int64, mangaID int, page int)
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLine(mangaID)
 	starts, err := b.db.ListUnreadBucketStarts(mangaID, 1000, 1, 1.0e18)
 	if err != nil {
@@ -150,10 +150,10 @@ func (b *Bot) sendMarkReadThousandsMenuPage(chatID int64, mangaID int, page int)
 		return
 	}
 
-	b.sendMarkReadThousandsMenu(chatID, mangaID, starts, unreadCount, mangaTitle, lastReadLine, page)
+	b.sendMarkReadThousandsMenu(chatID, userID, mangaID, starts, unreadCount, mangaTitle, lastReadLine, page)
 }
 
-func (b *Bot) sendMarkReadThousandsMenu(chatID int64, mangaID int, starts []int, unreadCount int, mangaTitle, lastReadLine string, page int) {
+func (b *Bot) sendMarkReadThousandsMenu(chatID int64, userID int64, mangaID int, starts []int, unreadCount int, mangaTitle, lastReadLine string, page int) {
 	const pageSize = 24
 	if page < 0 {
 		page = 0
@@ -195,7 +195,7 @@ func (b *Bot) sendMarkReadThousandsMenu(chatID int64, mangaID int, starts []int,
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkReadHundredsMenu(chatID int64, mangaID int, thousandStart int, root bool) {
+func (b *Bot) sendMarkReadHundredsMenu(chatID int64, userID int64, mangaID int, thousandStart int, root bool) {
 	unreadCount, err := b.db.CountUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting unread chapters: %v", err)
@@ -204,7 +204,7 @@ func (b *Bot) sendMarkReadHundredsMenu(chatID int64, mangaID int, thousandStart 
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLine(mangaID)
 	rangeStart, rangeEnd := bucketRange(thousandStart, 1000)
 
@@ -216,7 +216,7 @@ func (b *Bot) sendMarkReadHundredsMenu(chatID int64, mangaID int, thousandStart 
 		return
 	}
 	if len(starts) == 1 {
-		b.sendMarkReadTensMenu(chatID, mangaID, starts[0], root)
+		b.sendMarkReadTensMenu(chatID, userID, mangaID, starts[0], root)
 		return
 	}
 
@@ -237,7 +237,7 @@ func (b *Bot) sendMarkReadHundredsMenu(chatID int64, mangaID int, thousandStart 
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkReadTensMenu(chatID int64, mangaID int, hundredStart int, root bool) {
+func (b *Bot) sendMarkReadTensMenu(chatID int64, userID int64, mangaID int, hundredStart int, root bool) {
 	unreadCount, err := b.db.CountUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting unread chapters: %v", err)
@@ -246,7 +246,7 @@ func (b *Bot) sendMarkReadTensMenu(chatID int64, mangaID int, hundredStart int, 
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLine(mangaID)
 	rangeStart, rangeEnd := bucketRange(hundredStart, 100)
 
@@ -258,7 +258,7 @@ func (b *Bot) sendMarkReadTensMenu(chatID int64, mangaID int, hundredStart int, 
 		return
 	}
 	if len(starts) == 1 {
-		b.sendMarkReadChaptersMenuPage(chatID, mangaID, starts[0], root, 0)
+		b.sendMarkReadChaptersMenuPage(chatID, userID, mangaID, starts[0], root, 0)
 		return
 	}
 
@@ -279,7 +279,7 @@ func (b *Bot) sendMarkReadTensMenu(chatID int64, mangaID int, hundredStart int, 
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendMarkReadChaptersMenuPage(chatID int64, mangaID int, tenStart int, root bool, page int) {
+func (b *Bot) sendMarkReadChaptersMenuPage(chatID int64, userID int64, mangaID int, tenStart int, root bool, page int) {
 	unreadCount, err := b.db.CountUnreadChapters(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error counting unread chapters: %v", err)
@@ -288,7 +288,7 @@ func (b *Bot) sendMarkReadChaptersMenuPage(chatID int64, mangaID int, tenStart i
 		return
 	}
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	lastReadLine := b.lastReadLine(mangaID)
 	rangeStart, rangeEnd := bucketRange(tenStart, 10)
 

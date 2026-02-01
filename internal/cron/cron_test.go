@@ -36,14 +36,18 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
+	chatID := int64(42)
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	if err := database.Migrate(chatID); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
+	if err := database.EnsureUser(chatID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
 
-	if _, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super"); err != nil {
+	if _, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", chatID); err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
 
@@ -58,7 +62,7 @@ func TestPerformUpdate_DoesNotDeadlockOnSQLite(t *testing.T) {
 	client.BaseURL = srv.URL
 
 	upd := updater.New(database, client, client)
-	s := NewScheduler(database, &recordingNotifier{}, upd, nil)
+	s := NewScheduler(database, &recordingNotifier{}, upd)
 
 	done := make(chan struct{}, 1)
 	go func() {
@@ -85,18 +89,17 @@ func TestPerformUpdate_SendsNotificationsToRegisteredChats(t *testing.T) {
 	if err := database.CreateTables(); err != nil {
 		t.Fatalf("CreateTables(): %v", err)
 	}
-	if err := database.Migrate(); err != nil {
+	chatID := int64(42)
+	if err := database.Migrate(chatID); err != nil {
 		t.Fatalf("Migrate(): %v", err)
 	}
-
-	chatID := int64(42)
-	if err := database.EnsureUser(chatID); err != nil {
+	if err := database.EnsureUser(chatID, false); err != nil {
 		t.Fatalf("EnsureUser(): %v", err)
 	}
 
 	mangaDexID := "37b87be0-b1f4-4507-affa-06c99ebb27f8"
 	mangaTitle := "Dragon Ball Super"
-	mangaDBID, err := database.AddManga(mangaDexID, mangaTitle)
+	mangaDBID, err := database.AddManga(mangaDexID, mangaTitle, chatID)
 	if err != nil {
 		t.Fatalf("AddManga(): %v", err)
 	}
@@ -123,7 +126,7 @@ func TestPerformUpdate_SendsNotificationsToRegisteredChats(t *testing.T) {
 
 	n := &recordingNotifier{}
 	upd := updater.New(database, client, client)
-	s := NewScheduler(database, n, upd, []int64{chatID})
+	s := NewScheduler(database, n, upd)
 
 	s.performUpdate(context.Background())
 

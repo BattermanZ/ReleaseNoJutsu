@@ -25,7 +25,7 @@ When a manga reaches **3+ unread chapters**, notifications include a warning **o
    ```
 2. Edit `.env` and set:
    - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_ALLOWED_USERS` (comma-separated Telegram user IDs)
+- `TELEGRAM_ALLOWED_USERS` (comma-separated Telegram user IDs; **first ID is admin**)
 3. Start the app:
    ```bash
    docker compose up -d --build
@@ -76,17 +76,18 @@ It creates:
 
 1. Create a bot via `@BotFather` and copy the token.
 2. Get your Telegram numeric user ID (e.g. via `@userinfobot`).
-3. Put them in `.env`:
+3. Put them in `.env` (admin first):
    ```env
    TELEGRAM_BOT_TOKEN=...
-   TELEGRAM_ALLOWED_USERS=123456789,987654321
+   TELEGRAM_ALLOWED_USERS=123456789
    ```
 
-Only users listed in `TELEGRAM_ALLOWED_USERS` can use the bot.
+Only users who have **paired** can use the bot.
 
 Notes:
 - `TELEGRAM_ALLOWED_USERS` must be a comma-separated list of numeric user IDs (invalid entries cause startup to fail).
-- Scheduled notifications are sent only to **private chats** (not groups/channels) for allowed users, to avoid leaking updates to other chat members.
+- The first ID is treated as the admin who can generate pairing codes.
+- Scheduled notifications are sent only to **private chats** (not groups/channels), to avoid leaking updates to other chat members.
 
 Important: this app uses Telegram long-polling (`getUpdates`), so **only one instance** of the bot should run for a given token. If you run multiple containers/processes you’ll see `Conflict: terminated by other getUpdates request`.
 
@@ -96,6 +97,7 @@ Commands:
 - `/start` – show the main menu
 - `/help` – show help
 - `/status` – status/health summary
+- `/genpair` – generate a pairing code (admin only)
 
 Main menu actions:
 - **Add manga**: send a MangaDex URL (e.g. `https://mangadex.org/title/<uuid>/...`) or a raw UUID
@@ -105,10 +107,16 @@ Main menu actions:
 - **Sync all chapters** (imports the full chapter list for a manga; useful when starting from scratch)
 - **List read chapters** (and mark a chapter as unread)
 - **Remove manga**
+- **Generate pairing code** (admin only)
 
 Notifications:
 - The scheduler checks for new chapters every 6 hours and sends a message when something new is found.
-- Your chat is automatically registered for notifications after you interact with the bot (and you’re authorized).
+- Your chat is automatically registered for notifications after you pair and interact with the bot.
+
+Pairing flow:
+- Admin uses **Generate pairing code** (or `/genpair`).
+- Share the code with your friend.
+- They send the code (format `XXXX-XXXX`) to the bot in a private chat to gain access.
 
 ## How it works (high level)
 
@@ -142,7 +150,7 @@ Common checks (similar intent to “cargo fmt / cargo check”):
 
 - `Conflict: terminated by other getUpdates request`: stop the other running instance; only one long-poller per bot token.
 - Permission errors in Docker: your host `./logs` and `./database` must be writable by the container user (see the compose `user:` note above).
-- “not authorised”: your Telegram user ID is not included in `TELEGRAM_ALLOWED_USERS`.
+- “not authorised”: you have not paired yet (ask the admin for a pairing code).
 
 ## License
 

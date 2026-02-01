@@ -50,6 +50,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		{Command: "start", Description: "Show the main menu"},
 		{Command: "help", Description: "Show help information"},
 		{Command: "status", Description: "Show status/health information"},
+		{Command: "genpair", Description: "Generate a pairing code (admin only)"},
 	}
 	if _, err := b.api.Request(tgbotapi.NewSetMyCommands(commands...)); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed to set bot commands: %v", err)
@@ -71,10 +72,13 @@ func (b *Bot) Run(ctx context.Context) error {
 			}
 			if update.Message != nil {
 				if !b.isAuthorized(update.Message.From.ID) {
+					if b.tryHandlePairingCode(update.Message) {
+						continue
+					}
 					b.sendUnauthorizedMessage(update.Message.Chat.ID)
 					continue
 				}
-				b.ensureUser(update.Message.Chat.ID, update.Message.From.ID)
+				b.ensureUser(update.Message.Chat.ID, update.Message.From.ID, b.isAdmin(update.Message.From.ID))
 				b.handleMessage(update.Message)
 			} else if update.CallbackQuery != nil {
 				if !b.isAuthorized(update.CallbackQuery.From.ID) {
@@ -84,7 +88,7 @@ func (b *Bot) Run(ctx context.Context) error {
 					continue
 				}
 				if update.CallbackQuery.Message != nil {
-					b.ensureUser(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.From.ID)
+					b.ensureUser(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.From.ID, b.isAdmin(update.CallbackQuery.From.ID))
 				}
 				b.handleCallbackQuery(update.CallbackQuery)
 			}
@@ -92,28 +96,35 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 }
 
-func (b *Bot) ensureUser(chatID int64, fromUserID int64) {
+func (b *Bot) ensureUser(chatID int64, fromUserID int64, isAdmin bool) {
 	// Hardening: only store private chat IDs for notifications.
 	// In private chats, Chat.ID equals the user ID.
 	if chatID <= 0 || chatID != fromUserID {
 		return
 	}
-	if err := b.db.EnsureUser(chatID); err != nil {
+	if err := b.db.EnsureUser(chatID, isAdmin); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed to ensure chat ID %d in users table: %v", chatID, err)
 	}
 }
 
 func (b *Bot) isAuthorized(userID int64) bool {
-	for _, allowedID := range b.config.AllowedUsers {
-		if userID == allowedID {
-			return true
-		}
+	if b.isAdmin(userID) {
+		return true
 	}
-	return false
+	ok, _, err := b.db.IsUserAuthorized(userID)
+	if err != nil {
+		logger.LogMsg(logger.LogWarning, "Auth lookup failed for %d: %v", userID, err)
+		return false
+	}
+	return ok
+}
+
+func (b *Bot) isAdmin(userID int64) bool {
+	return userID == b.config.AdminUserID
 }
 
 func (b *Bot) sendUnauthorizedMessage(chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "🚫 Sorry, you are not authorised to use this bot.")
+	msg := tgbotapi.NewMessage(chatID, "🚫 You’re not authorized yet.\nAsk the admin for a pairing code and send it here (format: XXXX-XXXX).")
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending unauthorized message to %d: %v", chatID, err)
 	}

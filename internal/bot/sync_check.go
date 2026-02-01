@@ -12,10 +12,10 @@ import (
 	"releasenojutsu/internal/updater"
 )
 
-func (b *Bot) handleSyncAllChapters(chatID int64, mangaID int) {
+func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 	b.logAction(chatID, "Sync all chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
-	mangaTitle, _ := b.db.GetMangaTitle(mangaID)
+	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	start := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Syncing all chapters for <b>%s</b> (this can take a bit)...", html.EscapeString(mangaTitle)))
 	start.ParseMode = "HTML"
 	b.sendMessageWithMainMenuButton(start)

@@ -24,6 +24,8 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 			b.sendHelpMessage(message.Chat.ID)
 		case "status":
 			b.sendStatusMessage(message.Chat.ID)
+		case "genpair":
+			b.handleGeneratePairingCode(message.Chat.ID, message.From.ID)
 		default:
 			msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unknown command. Please use /start or /help.")
 			if _, err := b.api.Send(msg); err != nil {
@@ -35,14 +37,14 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	} else {
 		text := strings.TrimSpace(message.Text)
 		if b.looksLikeMangaDexID(text) {
-			b.handleAddManga(message.Chat.ID, text)
+			b.handleAddManga(message.Chat.ID, message.From.ID, text)
 			return
 		}
 
 		// Check if the message is a MangaDex URL.
 		mangaID, err := b.mdClient.ExtractMangaIDFromURL(text)
 		if err == nil {
-			b.handleAddManga(message.Chat.ID, mangaID)
+			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
 			return
 		}
 
@@ -62,10 +64,10 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 	// Add manga flow (supports URL or raw UUID).
 	if strings.Contains(replyTo, "Add a New Manga") || strings.Contains(replyTo, "MangaDex URL or ID") || strings.Contains(replyTo, "MangaDex ID") {
 		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
-			b.handleAddManga(message.Chat.ID, mangaID)
+			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
 			return
 		}
-		b.handleAddManga(message.Chat.ID, replyText)
+		b.handleAddManga(message.Chat.ID, message.From.ID, replyText)
 		return
 	}
 
