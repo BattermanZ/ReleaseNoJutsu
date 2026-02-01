@@ -54,6 +54,7 @@ type BotButtonsCopy struct {
 
 type BotPromptsCopy struct {
 	AddMangaTitle          string
+	AddMangaTitlePlain     string
 	AddMangaPlaceholder    string
 	MangaPlusQuestion      string
 	ConfirmDelete          string
@@ -229,6 +230,7 @@ var Copy = BotCopy{
 	},
 	Prompts: BotPromptsCopy{
 		AddMangaTitle:          "📚 *Add a New Manga*\nPlease send the MangaDex URL or ID of the manga you want to track.",
+		AddMangaTitlePlain:     "📚 Add a New Manga\nPlease send the MangaDex URL or ID of the manga you want to track.",
 		AddMangaPlaceholder:    "MangaDex ID",
 		MangaPlusQuestion:      "📚 <b>%s</b>\n\nIs this a <b>MANGA Plus</b> manga?\n\nThis controls whether you get the “3+ unread chapters” warning.",
 		ConfirmDelete:          "🗑️ Remove <b>%s</b>?\n\nThis will delete the manga and all stored chapters from your local database.",

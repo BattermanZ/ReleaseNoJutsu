@@ -63,7 +63,7 @@ func (b *Bot) handleReply(message *tgbotapi.Message) {
 	replyText := strings.TrimSpace(message.Text)
 
 	// Add manga flow (supports URL or raw UUID).
-	if strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaTitle) || strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaPlaceholder) {
+	if strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaTitlePlain) {
 		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
 			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
 			return
