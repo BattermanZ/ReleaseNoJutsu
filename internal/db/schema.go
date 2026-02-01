@@ -47,8 +47,6 @@ func (db *DB) CreateTables() error {
 			key TEXT PRIMARY KEY,
 			last_update TIMESTAMP
 		);
-
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_manga_user_mangadex ON manga(user_id, mangadex_id);
 	`)
 	return err
 }

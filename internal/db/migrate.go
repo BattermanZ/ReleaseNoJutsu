@@ -6,6 +6,14 @@ import (
 )
 
 func (db *DB) Migrate(adminUserID int64) error {
+	// Disable FK checks for the duration of migration to avoid legacy data conflicts.
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON")
+	}()
+
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			chat_id INTEGER PRIMARY KEY,
@@ -14,6 +22,41 @@ func (db *DB) Migrate(adminUserID int64) error {
 		)
 	`); err != nil {
 		return err
+	}
+
+	hasUsersIsAdmin, err := db.hasColumn("users", "is_admin")
+	if err != nil {
+		return err
+	}
+	if !hasUsersIsAdmin {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+
+	hasUsersCreatedAt, err := db.hasColumn("users", "created_at")
+	if err != nil {
+		return err
+	}
+	if !hasUsersCreatedAt {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"); err != nil {
+			return err
+		}
+	}
+
+	if adminUserID > 0 {
+		if _, err := db.Exec(`
+			INSERT OR IGNORE INTO users (chat_id, is_admin, created_at)
+			VALUES (?, 1, CURRENT_TIMESTAMP)
+		`, adminUserID); err != nil {
+			return err
+		}
+		if _, err := db.Exec("UPDATE users SET is_admin = 1 WHERE chat_id = ?", adminUserID); err != nil {
+			return err
+		}
+		if _, err := db.Exec("UPDATE users SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)"); err != nil {
+			return err
+		}
 	}
 
 	hasMangaUserID, err := db.hasColumn("manga", "user_id")
@@ -107,41 +150,6 @@ func (db *DB) Migrate(adminUserID int64) error {
 	}
 	if !hasChaptersUpdatedAt {
 		if _, err := db.Exec("ALTER TABLE chapters ADD COLUMN updated_at TIMESTAMP"); err != nil {
-			return err
-		}
-	}
-
-	hasUsersIsAdmin, err := db.hasColumn("users", "is_admin")
-	if err != nil {
-		return err
-	}
-	if !hasUsersIsAdmin {
-		if _, err := db.Exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"); err != nil {
-			return err
-		}
-	}
-
-	hasUsersCreatedAt, err := db.hasColumn("users", "created_at")
-	if err != nil {
-		return err
-	}
-	if !hasUsersCreatedAt {
-		if _, err := db.Exec("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"); err != nil {
-			return err
-		}
-	}
-
-	if adminUserID > 0 {
-		if _, err := db.Exec(`
-			INSERT OR IGNORE INTO users (chat_id, is_admin, created_at)
-			VALUES (?, 1, CURRENT_TIMESTAMP)
-		`, adminUserID); err != nil {
-			return err
-		}
-		if _, err := db.Exec("UPDATE users SET is_admin = 1 WHERE chat_id = ?", adminUserID); err != nil {
-			return err
-		}
-		if _, err := db.Exec("UPDATE users SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)"); err != nil {
 			return err
 		}
 	}
