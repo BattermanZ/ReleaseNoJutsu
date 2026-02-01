@@ -6,6 +6,16 @@ import (
 )
 
 func (db *DB) Migrate(adminUserID int64) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			chat_id INTEGER PRIMARY KEY,
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP
+		)
+	`); err != nil {
+		return err
+	}
+
 	hasMangaUserID, err := db.hasColumn("manga", "user_id")
 	if err != nil {
 		return err

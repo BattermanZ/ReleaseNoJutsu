@@ -73,6 +73,7 @@ func (db *DB) UpdateMangaLastSeenAt(mangaID int, seenAt time.Time) error {
 }
 
 func (db *DB) GetAllManga() (*sql.Rows, error) {
+	// Use GetAllMangaByUser in normal flows to avoid accidental cross-user leakage.
 	return db.Query("SELECT id, user_id, mangadex_id, title, is_manga_plus, last_checked, last_seen_at, last_read_number, unread_count FROM manga")
 }
 

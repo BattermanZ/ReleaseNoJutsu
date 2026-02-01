@@ -27,6 +27,8 @@ type Bot struct {
 	mdClient *mangadex.Client
 	config   *config.Config
 	updater  *updater.Updater
+
+	authorizedCache map[int64]struct{}
 }
 
 // New creates a new Bot.
@@ -38,6 +40,9 @@ func New(api TelegramAPI, db *db.DB, mdClient *mangadex.Client, config *config.C
 		mdClient: mdClient,
 		config:   config,
 		updater:  upd,
+		authorizedCache: map[int64]struct{}{
+			config.AdminUserID: {},
+		},
 	}
 }
 
@@ -71,6 +76,10 @@ func (b *Bot) Run(ctx context.Context) error {
 				return nil
 			}
 			if update.Message != nil {
+				if !isPrivateChat(update.Message.Chat, update.Message.From) {
+					b.sendPrivateOnlyMessage(update.Message.Chat.ID)
+					continue
+				}
 				if !b.isAuthorized(update.Message.From.ID) {
 					if b.tryHandlePairingCode(update.Message) {
 						continue
@@ -81,6 +90,10 @@ func (b *Bot) Run(ctx context.Context) error {
 				b.ensureUser(update.Message.Chat.ID, update.Message.From.ID, b.isAdmin(update.Message.From.ID))
 				b.handleMessage(update.Message)
 			} else if update.CallbackQuery != nil {
+				if update.CallbackQuery.Message != nil && !isPrivateChat(update.CallbackQuery.Message.Chat, update.CallbackQuery.From) {
+					b.sendPrivateOnlyMessage(update.CallbackQuery.Message.Chat.ID)
+					continue
+				}
 				if !b.isAuthorized(update.CallbackQuery.From.ID) {
 					if update.CallbackQuery.Message != nil {
 						b.sendUnauthorizedMessage(update.CallbackQuery.Message.Chat.ID)
@@ -108,6 +121,9 @@ func (b *Bot) ensureUser(chatID int64, fromUserID int64, isAdmin bool) {
 }
 
 func (b *Bot) isAuthorized(userID int64) bool {
+	if _, ok := b.authorizedCache[userID]; ok {
+		return true
+	}
 	if b.isAdmin(userID) {
 		return true
 	}
@@ -115,6 +131,9 @@ func (b *Bot) isAuthorized(userID int64) bool {
 	if err != nil {
 		logger.LogMsg(logger.LogWarning, "Auth lookup failed for %d: %v", userID, err)
 		return false
+	}
+	if ok {
+		b.authorizedCache[userID] = struct{}{}
 	}
 	return ok
 }
@@ -128,4 +147,18 @@ func (b *Bot) sendUnauthorizedMessage(chatID int64) {
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending unauthorized message to %d: %v", chatID, err)
 	}
+}
+
+func (b *Bot) sendPrivateOnlyMessage(chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "🚫 This bot can only be used in a private chat.")
+	if _, err := b.api.Send(msg); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed sending private-only message to %d: %v", chatID, err)
+	}
+}
+
+func isPrivateChat(chat *tgbotapi.Chat, from *tgbotapi.User) bool {
+	if chat == nil || from == nil {
+		return false
+	}
+	return chat.ID == from.ID && chat.ID > 0
 }

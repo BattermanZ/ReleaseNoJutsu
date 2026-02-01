@@ -10,6 +10,8 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"releasenojutsu/internal/logger"
 )
 
 func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
@@ -38,6 +40,7 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 
 	used, err := b.db.RedeemPairingCode(code, message.From.ID)
 	if err != nil {
+		logger.LogMsg(logger.LogWarning, "Pairing code redeem failed: %v", err)
 		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ That pairing code is invalid or expired.")
 		_, _ = b.api.Send(msg)
 		return true
@@ -49,6 +52,7 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 	}
 
 	_ = b.db.EnsureUser(message.From.ID, false)
+	b.authorizedCache[message.From.ID] = struct{}{}
 	msg := tgbotapi.NewMessage(message.Chat.ID, "✅ You’re now authorized! Use /start to open the menu.")
 	_, _ = b.api.Send(msg)
 	return true
