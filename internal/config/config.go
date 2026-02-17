@@ -42,6 +42,9 @@ func Load() (*Config, error) {
 		}
 		allowedUsers = append(allowedUsers, id)
 	}
+	if len(allowedUsers) == 0 {
+		return nil, fmt.Errorf("TELEGRAM_ALLOWED_USERS is required (at least 1 user id)")
+	}
 
 	return &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),

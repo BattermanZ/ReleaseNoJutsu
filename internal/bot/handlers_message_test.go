@@ -2,6 +2,7 @@ package bot
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -13,6 +14,7 @@ import (
 )
 
 type fakeTelegramAPI struct {
+	mu   sync.Mutex
 	sent []tgbotapi.Chattable
 }
 
@@ -25,6 +27,8 @@ func (f *fakeTelegramAPI) Request(_ tgbotapi.Chattable) (*tgbotapi.APIResponse, 
 }
 
 func (f *fakeTelegramAPI) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, c)
 	return tgbotapi.Message{}, nil
 }
@@ -38,6 +42,8 @@ func (f *fakeTelegramAPI) lastMessageText(t *testing.T) string {
 
 func (f *fakeTelegramAPI) lastMessageConfig(t *testing.T) tgbotapi.MessageConfig {
 	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if len(f.sent) == 0 {
 		t.Fatal("no sent messages")
 	}
@@ -46,6 +52,21 @@ func (f *fakeTelegramAPI) lastMessageConfig(t *testing.T) tgbotapi.MessageConfig
 		t.Fatalf("last sent message type = %T, want tgbotapi.MessageConfig", f.sent[len(f.sent)-1])
 	}
 	return msg
+}
+
+func (f *fakeTelegramAPI) sentMessageTexts(t *testing.T) []string {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.sent))
+	for _, c := range f.sent {
+		msg, ok := c.(tgbotapi.MessageConfig)
+		if !ok {
+			t.Fatalf("sent message type = %T, want tgbotapi.MessageConfig", c)
+		}
+		out = append(out, msg.Text)
+	}
+	return out
 }
 
 func setupBotForMessageTests(t *testing.T) (*Bot, *db.DB, *fakeTelegramAPI) {
