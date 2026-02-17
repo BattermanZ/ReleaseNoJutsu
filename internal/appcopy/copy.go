@@ -8,7 +8,6 @@ type BotCopy struct {
 	Prompts  BotPromptsCopy
 	Errors   BotErrorsCopy
 	Info     BotInfoCopy
-	Menus    BotMenusCopy
 	Labels   BotLabelsCopy
 }
 
@@ -36,8 +35,6 @@ type BotButtonsCopy struct {
 	ToggleMangaPlus     string
 	Details             string
 	MarkAllRead         string
-	MarkAllReadConfirm  string
-	RemoveConfirm       string
 	Cancel              string
 	CheckNewShort       string
 	SyncAllShort        string
@@ -178,15 +175,6 @@ type BotInfoCopy struct {
 	BreadcrumbReadRoot          string
 }
 
-type BotMenusCopy struct {
-	CheckNewTitle   string
-	MarkReadTitle   string
-	MarkUnreadTitle string
-	SyncAllTitle    string
-	RemoveTitle     string
-	SelectManga     string
-}
-
 type BotLabelsCopy struct {
 	ChapterPrefix      string
 	ChapterWithTitle   string
@@ -220,8 +208,6 @@ var Copy = BotCopy{
 		ToggleMangaPlus:     "⭐ Toggle Manga Plus",
 		Details:             "ℹ️ View Details",
 		MarkAllRead:         "✅ Mark All as Read",
-		MarkAllReadConfirm:  "✅ Yes, Mark All Read",
-		RemoveConfirm:       "✅ Yes, Remove",
 		Cancel:              "❌ Cancel",
 		CheckNewShort:       "🔍 Check New",
 		SyncAllShort:        "🔄 Import",
@@ -265,7 +251,7 @@ var Copy = BotCopy{
 	},
 	Errors: BotErrorsCopy{
 		CouldNotRetrieveManga: "❌ I couldn't find that manga. Double-check the MangaDex ID or URL and try again!",
-		CouldNotAddManga:      "❌ I couldn't add that manga. It might already be in your list, or the ID is invalid. Check /list to see your current manga.",
+		CouldNotAddManga:      "❌ I couldn't add that manga. It might already be in your list, or the ID is invalid. Open \"My Manga\" from the main menu to check your current list.",
 		SyncFailed:            "❌ Import failed for <b>%s</b>.\n\nYou can try again from the main menu using \"Import All Chapters\".",
 		SyncFailedSimple:      "❌ Import failed for <b>%s</b>. Try again in a moment.",
 		CannotCheckUpdates:    "❌ I couldn't check MangaDex for updates right now. Try again in a bit!",
@@ -292,6 +278,7 @@ I automatically check for updates every 6 hours, but you can also check manually
 • /start - Return to the main menu
 • /help - Show this help message
 • /status - Show bot status
+• /genpair - Generate a pairing code (admin only)
 
 *What I Can Do:*
 • *Add manga* - Start tracking a series by sending its MangaDex URL or ID
@@ -314,7 +301,7 @@ Use /start anytime to explore the menu!`,
 		StatusTitle:                 "ReleaseNoJutsu Status",
 		StatusTracked:               "Tracked manga: <b>%d</b>\n",
 		StatusChaptersStored:        "Chapters stored: <b>%d</b>\n",
-		StatusRegisteredChats:       "Registered chats: <b>%d</b>\n",
+		StatusRegisteredChats:       "Your account entries: <b>%d</b>\n",
 		StatusTotalUnread:           "Total unread: <b>%d</b>\n",
 		StatusLastRun:               "Last update check: <b>%s</b>\n",
 		StatusCronNever:             "Last update check: <b>never</b>\n",
@@ -375,24 +362,16 @@ Use /start anytime to explore the menu!`,
 		NewChapterAlertItem:         "• <b>%s</b>: %s\n",
 		NewChapterAlertUnread:       "\nYou now have <b>%d</b> unread chapter(s) for this series.\n",
 		NewChapterAlertWarning:      "\n⚠️ <b>Heads up:</b> You have 3+ unread chapters piling up for this manga!",
-		NewChapterAlertFooter:       "\nUse /%s to mark chapters as read or explore other options.",
+		NewChapterAlertFooter:       "\nUse /%s to open the menu, then mark chapters as read or explore other options.",
 		NewChapterAlertTitlePlain:   "📢 New Chapter Alert!\n\n",
 		NewChapterAlertHeaderPlain:  "%s has new chapters:\n",
 		NewChapterAlertItemPlain:    "• %s: %s\n",
 		NewChapterAlertUnreadPlain:  "\nYou now have %d unread chapter(s) for this series.\n",
 		NewChapterAlertWarningPlain: "\n⚠️ Heads up: you have 3+ unread chapters piling up for this manga!",
-		NewChapterAlertFooterPlain:  "\nUse /%s to mark chapters as read or explore other options.",
+		NewChapterAlertFooterPlain:  "\nUse /%s to open the menu, then mark chapters as read or explore other options.",
 		BreadcrumbPathFormat:        "Path: %s",
 		BreadcrumbUnreadRoot:        "Unread",
 		BreadcrumbReadRoot:          "Read",
-	},
-	Menus: BotMenusCopy{
-		CheckNewTitle:   "🔍 *Check for New Chapters*\n\nSelect a manga to see if new chapters are available:",
-		MarkReadTitle:   "✅ *Mark Chapters as Read*\n\nSelect a manga to update your reading progress:",
-		MarkUnreadTitle: "↩️ *Mark Chapter as Unread*\n\nSelect a manga to move your progress back:",
-		SyncAllTitle:    "🔄 *Import All Chapters*\n\nSelect a manga to pull its full chapter history from MangaDex:",
-		RemoveTitle:     "🗑️ *Remove Manga*\n\nSelect a manga to stop tracking:",
-		SelectManga:     "📚 *Select a Manga*\n\nChoose a manga to continue:",
 	},
 	Labels: BotLabelsCopy{
 		ChapterPrefix:      "Ch. %s",

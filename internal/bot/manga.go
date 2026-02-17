@@ -151,7 +151,7 @@ func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.ToggleMangaPlus, cbMangaAction(mangaID, "toggle_plus")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveConfirm, cbMangaAction(mangaID, "remove_manga")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveManga, cbMangaAction(mangaID, "remove_manga")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToList, cbListManga()),
