@@ -235,7 +235,7 @@ var Copy = BotCopy{
 		PairingAlreadyAuth:     "✅ You're already authorized and ready to go!",
 		PairingInvalid:         "❌ That pairing code is invalid or expired. Ask the admin for a new one.",
 		PairingSuccess:         "✅ You're now authorized! Use /start to open the menu.",
-		PairingCodeGenerated:   "🔑 Pairing code: <b>%s</b>\n⏳ Valid until: <b>%s</b> (UTC)\n♻️ One-time use\n\n<b>How to join:</b>\n1. Open the bot: https://t.me/ReleaseNoJutsuBot\n2. Press Start\n3. Send the pairing code above exactly as shown\n4. You're paired and ready to use the bot",
+		PairingCodeGenerated:   "🔑 Pairing code: <b>%s</b>\n⏳ Valid until: <b>%s</b>\n♻️ One-time use\n\n<b>How to join:</b>\n1. Open the bot: https://t.me/ReleaseNoJutsuBot\n2. Press Start\n3. Send the pairing code above exactly as shown\n4. You're paired and ready to use the bot",
 		AdminOnly:              "🚫 Only the admin can generate pairing codes.",
 		PrivateChatOnly:        "🚫 I only work in private chats. Message me directly!",
 		Unauthorized:           "🚫 I need to verify you first.\n\nAsk the admin for a pairing code and send it here (format: XXXX-XXXX).",
