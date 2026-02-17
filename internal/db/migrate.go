@@ -249,7 +249,7 @@ func (db *DB) Migrate(adminUserID int64) error {
 		UPDATE manga
 		SET last_seen_at = COALESCE(
 			(
-				SELECT MAX(COALESCE(created_at, readable_at))
+				SELECT MAX(COALESCE(created_at, readable_at, CASE WHEN datetime(published_at) <= datetime('now', '+1 day') THEN published_at END))
 				FROM chapters
 				WHERE chapters.manga_id = manga.id
 			),
@@ -265,7 +265,7 @@ func (db *DB) Migrate(adminUserID int64) error {
 		UPDATE manga
 		SET last_seen_at = COALESCE(
 			(
-				SELECT MAX(COALESCE(created_at, readable_at))
+				SELECT MAX(COALESCE(created_at, readable_at, CASE WHEN datetime(published_at) <= datetime('now', '+1 day') THEN published_at END))
 				FROM chapters
 				WHERE chapters.manga_id = manga.id
 			),

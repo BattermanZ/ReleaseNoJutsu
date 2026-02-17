@@ -565,3 +565,53 @@ func TestMigrate_RepairsFuturePublishAtAndLastSeenAt(t *testing.T) {
 		t.Fatalf("last_seen_at=%v, want %v", lastSeenAt, created)
 	}
 }
+
+func TestMigrate_BackfillsLastSeenFromPastPublishedAt(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(initial): %v", err)
+	}
+
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("37b87be0-b1f4-4507-affa-06c99ebb27f8", "Dragon Ball Super", 1)
+	if err != nil {
+		t.Fatalf("AddManga(): %v", err)
+	}
+
+	published := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := database.Exec(`
+		INSERT INTO chapters (manga_id, chapter_number, title, published_at, readable_at, created_at, updated_at)
+		VALUES (?, '1', 'One', ?, NULL, NULL, ?)
+	`, mangaID, published, published); err != nil {
+		t.Fatalf("insert chapter: %v", err)
+	}
+	if _, err := database.Exec("UPDATE manga SET last_seen_at = NULL WHERE id = ?", mangaID); err != nil {
+		t.Fatalf("clear last_seen_at: %v", err)
+	}
+
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(backfill): %v", err)
+	}
+
+	var lastSeenStr string
+	if err := database.QueryRow("SELECT CAST(last_seen_at AS TEXT) FROM manga WHERE id = ?", mangaID).Scan(&lastSeenStr); err != nil {
+		t.Fatalf("select last_seen_at: %v", err)
+	}
+
+	lastSeenAt, err := parseSQLiteTime(lastSeenStr)
+	if err != nil {
+		t.Fatalf("parse last_seen_at: %v", err)
+	}
+	if !lastSeenAt.Equal(published) {
+		t.Fatalf("last_seen_at=%v, want %v", lastSeenAt, published)
+	}
+}

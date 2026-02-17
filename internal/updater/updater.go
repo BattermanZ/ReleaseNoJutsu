@@ -205,6 +205,7 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 		}
 
 		pageHasAnyNew := false
+		pageHasUnknownSeenAt := false
 		for _, chapter := range feed.Data {
 			times := normalizeChapterTimes(chapter.Attributes, now)
 			seenAt := times.SeenAt
@@ -214,7 +215,11 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 
 			// If a chapter has no trustworthy seen-at timestamp (e.g. publishAt sentinel only),
 			// skip it in incremental checks to avoid poisoning the watermark.
-			if seenAt.IsZero() || !seenAt.After(lastSeenAt.UTC()) {
+			if seenAt.IsZero() {
+				pageHasUnknownSeenAt = true
+				continue
+			}
+			if !seenAt.After(lastSeenAt.UTC()) {
 				continue
 			}
 			pageHasAnyNew = true
@@ -233,7 +238,7 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 			})
 		}
 
-		if !pageHasAnyNew {
+		if !pageHasAnyNew && !pageHasUnknownSeenAt {
 			// We reached chapters at/before the watermark; later pages are older.
 			break
 		}

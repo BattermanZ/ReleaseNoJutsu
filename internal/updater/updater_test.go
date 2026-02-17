@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -49,10 +50,24 @@ func (s *fakeStore) CountUnreadChapters(mangaID int) (int, error) { return len(s
 func (s *fakeStore) RecalculateUnreadCount(mangaID int) error { return nil }
 
 type fakeMangaDex struct {
-	feed *mangadex.ChapterFeedResponse
+	feed  *mangadex.ChapterFeedResponse
+	pages map[int]*mangadex.ChapterFeedResponse
+	total int
 }
 
 func (m *fakeMangaDex) GetChapterFeedPage(ctx context.Context, mangaID string, limit, offset int) (*mangadex.ChapterFeedResponse, error) {
+	if m.pages != nil {
+		if page, ok := m.pages[offset]; ok {
+			cp := *page
+			cp.Limit = limit
+			cp.Offset = offset
+			if cp.Total == 0 {
+				cp.Total = m.totalRows()
+			}
+			return &cp, nil
+		}
+		return &mangadex.ChapterFeedResponse{Data: nil, Limit: limit, Offset: offset, Total: m.totalRows()}, nil
+	}
 	if offset != 0 {
 		return &mangadex.ChapterFeedResponse{Data: nil, Limit: limit, Offset: offset, Total: len(m.feed.Data)}, nil
 	}
@@ -61,6 +76,26 @@ func (m *fakeMangaDex) GetChapterFeedPage(ctx context.Context, mangaID string, l
 	cp.Offset = offset
 	cp.Total = len(m.feed.Data)
 	return &cp, nil
+}
+
+func (m *fakeMangaDex) totalRows() int {
+	if m.total > 0 {
+		return m.total
+	}
+	if m.pages == nil {
+		if m.feed == nil {
+			return 0
+		}
+		return len(m.feed.Data)
+	}
+	count := 0
+	for _, page := range m.pages {
+		if page == nil {
+			continue
+		}
+		count += len(page.Data)
+	}
+	return count
 }
 
 func TestUpdateOne_UsesCreatedAtWatermark(t *testing.T) {
@@ -277,5 +312,63 @@ func TestUpdateOne_SkipsFuturePublishOnlyTimestamps(t *testing.T) {
 	}
 	if !res.LastSeenAt.Equal(lastSeen) {
 		t.Fatalf("LastSeenAt=%v, want unchanged %v", res.LastSeenAt, lastSeen)
+	}
+}
+
+func TestUpdateOne_ContinuesPastFuturePublishOnlyPage(t *testing.T) {
+	lastSeen := time.Time{}
+	futurePublish := time.Date(2037, 12, 31, 15, 0, 0, 0, time.UTC)
+	created := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	page0 := make([]mangadex.Chapter, 0, 100)
+	for i := 1; i <= 100; i++ {
+		page0 = append(page0, mangadex.Chapter{
+			ID: "f" + strconv.Itoa(i),
+			Attributes: mangadex.ChapterAttributes{
+				Chapter:     strconv.Itoa(i),
+				Title:       "Future sentinel",
+				PublishedAt: futurePublish,
+			},
+		})
+	}
+
+	store := &fakeStore{
+		mangaDexID: "md",
+		title:      "Title",
+		lastSeenAt: lastSeen,
+	}
+	md := &fakeMangaDex{
+		pages: map[int]*mangadex.ChapterFeedResponse{
+			0: {Data: page0},
+			100: {
+				Data: []mangadex.Chapter{
+					{
+						ID: "c101",
+						Attributes: mangadex.ChapterAttributes{
+							Chapter:    "101",
+							Title:      "Real chapter",
+							CreatedAt:  created,
+							ReadableAt: created,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	u := New(store, md, md)
+	res, err := u.UpdateOne(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("UpdateOne(): %v", err)
+	}
+
+	if len(store.added) != 1 {
+		t.Fatalf("added=%d, want 1", len(store.added))
+	}
+	if store.added[0].Chapter != "101" {
+		t.Fatalf("added chapter=%q, want 101", store.added[0].Chapter)
+	}
+	if !res.LastSeenAt.Equal(created) {
+		t.Fatalf("LastSeenAt=%v, want %v", res.LastSeenAt, created)
 	}
 }
