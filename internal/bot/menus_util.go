@@ -95,3 +95,28 @@ func boolToInt(b bool) int {
 func intToBool(n int) bool {
 	return n != 0
 }
+
+func appendBackToMangaRow(keyboard [][]tgbotapi.InlineKeyboardButton, mangaID int) [][]tgbotapi.InlineKeyboardButton {
+	return append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToManga, cbMangaAction(mangaID, "menu")),
+	})
+}
+
+func appendBackToMangaListRow(keyboard [][]tgbotapi.InlineKeyboardButton) [][]tgbotapi.InlineKeyboardButton {
+	return append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToList, cbListManga()),
+	})
+}
+
+func (b *Bot) sendMangaScopedMessage(msg tgbotapi.MessageConfig, mangaID int) {
+	contextRows := appendBackToMangaListRow(appendBackToMangaRow(nil, mangaID))
+	if msg.ReplyMarkup != nil {
+		if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
+			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, contextRows...)
+			msg.ReplyMarkup = keyboard
+		}
+	} else {
+		msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: contextRows}
+	}
+	b.sendMessageWithMainMenuButton(msg)
+}

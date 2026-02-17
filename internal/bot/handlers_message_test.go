@@ -33,6 +33,11 @@ func (f *fakeTelegramAPI) StopReceivingUpdates() {}
 
 func (f *fakeTelegramAPI) lastMessageText(t *testing.T) string {
 	t.Helper()
+	return f.lastMessageConfig(t).Text
+}
+
+func (f *fakeTelegramAPI) lastMessageConfig(t *testing.T) tgbotapi.MessageConfig {
+	t.Helper()
 	if len(f.sent) == 0 {
 		t.Fatal("no sent messages")
 	}
@@ -40,7 +45,7 @@ func (f *fakeTelegramAPI) lastMessageText(t *testing.T) string {
 	if !ok {
 		t.Fatalf("last sent message type = %T, want tgbotapi.MessageConfig", f.sent[len(f.sent)-1])
 	}
-	return msg.Text
+	return msg
 }
 
 func setupBotForMessageTests(t *testing.T) (*Bot, *db.DB, *fakeTelegramAPI) {
@@ -134,8 +139,8 @@ func TestConsumePendingInput_InvalidInputKeepsState(t *testing.T) {
 		t.Fatalf("pending state = (%q,%v), want (%q,true)", state, hasState, pendingStateAddManga)
 	}
 
-	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.AddMangaTitlePlain {
-		t.Fatalf("last sent text = %q, want %q", got, appcopy.Copy.Prompts.AddMangaTitlePlain)
+	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.AddMangaTitle {
+		t.Fatalf("last sent text = %q, want %q", got, appcopy.Copy.Prompts.AddMangaTitle)
 	}
 }
 
@@ -161,5 +166,36 @@ func TestHandleMessage_ReplyDoesNotAutoAddManga(t *testing.T) {
 
 	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.UnknownReply {
 		t.Fatalf("last sent text = %q, want %q", got, appcopy.Copy.Prompts.UnknownReply)
+	}
+}
+
+func TestSendAddMangaPrompt_HasCancelAction(t *testing.T) {
+	b, _, api := setupBotForMessageTests(t)
+
+	chatID := int64(42)
+	b.sendAddMangaPrompt(chatID)
+
+	msg := api.lastMessageConfig(t)
+	if msg.Text != appcopy.Copy.Prompts.AddMangaTitle {
+		t.Fatalf("prompt text = %q, want %q", msg.Text, appcopy.Copy.Prompts.AddMangaTitle)
+	}
+
+	keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("ReplyMarkup type = %T, want InlineKeyboardMarkup", msg.ReplyMarkup)
+	}
+	if len(keyboard.InlineKeyboard) == 0 || len(keyboard.InlineKeyboard[0]) == 0 {
+		t.Fatalf("keyboard is empty")
+	}
+	found := false
+	for _, row := range keyboard.InlineKeyboard {
+		for _, btn := range row {
+			if btn.Text == appcopy.Copy.Buttons.CancelAdd && btn.CallbackData != nil && *btn.CallbackData == cbCancelPending() {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cancel add button not found")
 	}
 }

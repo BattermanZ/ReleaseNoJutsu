@@ -26,7 +26,7 @@ func (b *Bot) handleMarkChapterAsUnread(chatID int64, userID int64, mangaID int,
 	result := fmt.Sprintf(appcopy.Copy.Info.MarkUnreadResult, html.EscapeString(chapterNumber), html.EscapeString(mangaTitle))
 	msg := tgbotapi.NewMessage(chatID, result)
 	msg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMangaScopedMessage(msg, mangaID)
 }
 
 func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
@@ -43,7 +43,7 @@ func (b *Bot) sendMarkUnreadStartMenu(chatID int64, userID int64, mangaID int) {
 
 	if readCount == 0 {
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.NothingToUnread, mangaTitle, lastReadLine))
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMangaScopedMessage(msg, mangaID)
 		return
 	}
 
@@ -132,6 +132,7 @@ func (b *Bot) sendMarkUnreadDirectChaptersMenu(chatID int64, userID int64, manga
 	}
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickChapterUnread, mangaTitle, lastReadLine, readCount))
+	keyboard = appendBackToMangaRow(keyboard, mangaID)
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -194,6 +195,7 @@ func (b *Bot) sendMarkUnreadThousandsMenu(chatID int64, userID int64, mangaID in
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
 	}
+	keyboard = appendBackToMangaRow(keyboard, mangaID)
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeRead, mangaTitle, lastReadLine, readCount))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
@@ -236,6 +238,7 @@ func (b *Bot) sendMarkUnreadHundredsMenu(chatID int64, userID int64, mangaID int
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackRoot(mangaID)),
 		})
 	}
+	keyboard = appendBackToMangaRow(keyboard, mangaID)
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeReadWithBucket, mangaTitle, lastReadLine, readCount, bucketLabel(thousandStart, 1000)))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
@@ -278,6 +281,7 @@ func (b *Bot) sendMarkUnreadTensMenu(chatID int64, userID int64, mangaID int, hu
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackHundreds(mangaID, hundredStart)),
 		})
 	}
+	keyboard = appendBackToMangaRow(keyboard, mangaID)
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickRangeReadWithBucket, mangaTitle, lastReadLine, readCount, bucketLabel(hundredStart, 100)))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
@@ -355,6 +359,7 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackTens(mangaID, tenStart)),
 		})
 	}
+	keyboard = appendBackToMangaRow(keyboard, mangaID)
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.PickChapterUnread, mangaTitle, lastReadLine, readCount))
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}

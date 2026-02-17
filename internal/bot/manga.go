@@ -61,6 +61,9 @@ func (b *Bot) handleListManga(chatID int64, userID int64) {
 
 	if count == 0 {
 		messageBuilder.WriteString(appcopy.Copy.Info.ListEmpty)
+		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.AddManga, cbAddManga()),
+		))
 	} else {
 		messageBuilder.WriteString(fmt.Sprintf(appcopy.Copy.Info.ListTotal, count))
 	}
@@ -112,7 +115,7 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, userID int64, nextAction stri
 		messageText = appcopy.Copy.Menus.MarkReadTitle
 	case "sync_all":
 		messageText = appcopy.Copy.Menus.SyncAllTitle
-	case "list_read":
+	case "mark_unread", "list_read":
 		messageText = appcopy.Copy.Menus.MarkUnreadTitle
 	case "remove_manga":
 		messageText = appcopy.Copy.Menus.RemoveTitle
@@ -152,7 +155,7 @@ func (b *Bot) handleMangaSelection(chatID int64, userID int64, mangaID int, next
 		b.handleMarkAllRead(chatID, userID, mangaID)
 	case "sync_all":
 		b.handleSyncAllChapters(chatID, userID, mangaID)
-	case "list_read":
+	case "mark_unread", "list_read": // Keep legacy callback token for backward compatibility.
 		b.sendMarkUnreadStartMenu(chatID, userID, mangaID)
 	case "details":
 		b.handleMangaDetails(chatID, userID, mangaID)
@@ -196,7 +199,7 @@ func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, cbMangaAction(mangaID, "mark_all_read")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkUnreadShort, cbMangaAction(mangaID, "list_read")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkUnreadShort, cbMangaAction(mangaID, "mark_unread")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Details, cbMangaAction(mangaID, "details")),
@@ -204,6 +207,9 @@ func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveConfirm, cbMangaAction(mangaID, "remove_manga")),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToList, cbListManga()),
 		),
 	)
 
@@ -229,6 +235,9 @@ func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesDelete, cbMangaAction(mangaID, "remove_manga_yes")),
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
 		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToManga, cbMangaAction(mangaID, "menu")),
+		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -248,6 +257,9 @@ func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int) {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesConfirm, cbMangaAction(mangaID, "mark_all_read_yes")),
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToManga, cbMangaAction(mangaID, "menu")),
 		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
@@ -269,7 +281,7 @@ func (b *Bot) handleMarkAllRead(chatID int64, userID int64, mangaID int) {
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.MarkAllReadDone, html.EscapeString(title), lastReadLine, unread))
 	msg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMangaScopedMessage(msg, mangaID)
 }
 
 func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
@@ -320,6 +332,9 @@ func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, cbMangaAction(mangaID, "mark_all_read")),
 		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToManga, cbMangaAction(mangaID, "menu")),
+		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
 }
@@ -347,7 +362,7 @@ func (b *Bot) toggleMangaPlus(chatID int64, userID int64, mangaID int) {
 	}
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.MangaPlusStatus, html.EscapeString(state), html.EscapeString(title)))
 	msg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMangaScopedMessage(msg, mangaID)
 }
 
 func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
@@ -371,5 +386,10 @@ func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.MangaRemoved, html.EscapeString(mangaTitle)))
 	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToList, cbListManga()),
+		),
+	)
 	b.sendMessageWithMainMenuButton(msg)
 }

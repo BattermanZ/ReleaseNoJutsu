@@ -27,11 +27,11 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 		if err := b.db.SetUserPendingState(query.From.ID, pendingStateAddManga, ""); err != nil {
 			logger.LogMsg(logger.LogWarning, "Failed to set pending state for user %d: %v", query.From.ID, err)
 		}
-		msg := tgbotapi.NewMessage(query.Message.Chat.ID, appcopy.Copy.Prompts.AddMangaTitle)
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: appcopy.Copy.Prompts.AddMangaPlaceholder}
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendAddMangaPrompt(query.Message.Chat.ID)
 	case callbackListManga:
+		if err := b.db.ClearUserPendingState(query.From.ID); err != nil {
+			logger.LogMsg(logger.LogWarning, "Failed clearing pending state for %d: %v", query.From.ID, err)
+		}
 		b.handleListManga(query.Message.Chat.ID, query.From.ID)
 	case callbackCheckNew, callbackMarkRead, callbackMarkUnread, callbackSyncAll, callbackRemoveManga:
 		// UX: normalize to "manga first, action second" via the manga list.
@@ -87,7 +87,16 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	case callbackMarkChapterUnread:
 		b.handleMarkChapterAsUnread(query.Message.Chat.ID, query.From.ID, payload.MangaID, payload.ChapterNumber)
 	case callbackMainMenu:
+		if err := b.db.ClearUserPendingState(query.From.ID); err != nil {
+			logger.LogMsg(logger.LogWarning, "Failed clearing pending state for %d: %v", query.From.ID, err)
+		}
 		b.sendMainMenu(query.Message.Chat.ID)
+	case callbackCancelPending:
+		if err := b.db.ClearUserPendingState(query.From.ID); err != nil {
+			logger.LogMsg(logger.LogWarning, "Failed clearing pending state for %d: %v", query.From.ID, err)
+		}
+		msg := tgbotapi.NewMessage(query.Message.Chat.ID, appcopy.Copy.Prompts.AddMangaCancelled)
+		b.sendMessageWithMainMenuButton(msg)
 	default:
 		logger.LogMsg(logger.LogError, "Unhandled callback kind: %d", payload.Kind)
 	}

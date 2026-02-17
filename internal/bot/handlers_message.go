@@ -71,9 +71,7 @@ func (b *Bot) consumePendingInput(message *tgbotapi.Message) bool {
 		mangaID, ok := b.mangaInputToID(message.Text)
 		if !ok {
 			// Keep pending state until the user sends a valid MangaDex URL/ID.
-			msg := tgbotapi.NewMessage(message.Chat.ID, appcopy.Copy.Prompts.AddMangaTitlePlain)
-			msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: appcopy.Copy.Prompts.AddMangaPlaceholder}
-			b.sendMessageWithMainMenuButton(msg)
+			b.sendAddMangaPrompt(message.Chat.ID)
 			return true
 		}
 		if err := b.db.ClearUserPendingState(message.From.ID); err != nil {
@@ -110,6 +108,17 @@ func (b *Bot) mangaInputToID(text string) (string, bool) {
 		return text, true
 	}
 	return "", false
+}
+
+func (b *Bot) sendAddMangaPrompt(chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.AddMangaTitle)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.CancelAdd, cbCancelPending()),
+		),
+	)
+	b.sendMessageWithMainMenuButton(msg)
 }
 
 func (b *Bot) looksLikeMangaDexID(text string) bool {

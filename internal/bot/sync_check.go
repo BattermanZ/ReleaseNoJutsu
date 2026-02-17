@@ -19,7 +19,7 @@ func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	start := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncStart, html.EscapeString(mangaTitle)))
 	start.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(start)
+	b.sendMangaScopedMessage(start, mangaID)
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -30,14 +30,14 @@ func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 			logger.LogMsg(logger.LogError, "SyncAll failed for manga %d: %v", mangaID, err)
 			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Errors.SyncFailedSimple, html.EscapeString(mangaTitle)))
 			msg.ParseMode = "HTML"
-			b.sendMessageWithMainMenuButton(msg)
+			b.sendMangaScopedMessage(msg, mangaID)
 			return
 		}
 
 		unread, _ := b.db.CountUnreadChapters(mangaID)
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncComplete, html.EscapeString(mangaTitle), synced, unread))
 		msg.ParseMode = "HTML"
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMangaScopedMessage(msg, mangaID)
 	}()
 }
 
@@ -50,14 +50,14 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	res, err := b.updater.UpdateOne(ctx, mangaID)
 	if err != nil {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotCheckUpdates)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMangaScopedMessage(msg, mangaID)
 		return
 	}
 
 	if len(res.NewChapters) == 0 {
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.NoNewChapters, html.EscapeString(res.Title)))
 		msg.ParseMode = "HTML"
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMangaScopedMessage(msg, mangaID)
 		return
 	}
 
@@ -68,5 +68,5 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount, isMangaPlus)
 	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMangaScopedMessage(msg, mangaID)
 }

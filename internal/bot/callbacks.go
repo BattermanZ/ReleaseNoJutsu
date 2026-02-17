@@ -36,6 +36,7 @@ const (
 	callbackMarkUnreadBackTens
 	callbackRemoveManga
 	callbackMainMenu
+	callbackCancelPending
 )
 
 type callbackPayload struct {
@@ -80,6 +81,8 @@ func parseCallbackData(raw string) (callbackPayload, error) {
 	case "mark_read":
 		return callbackPayload{Kind: callbackMarkRead}, nil
 	case "list_read":
+		return callbackPayload{Kind: callbackMarkUnread}, nil
+	case "mark_unread":
 		return callbackPayload{Kind: callbackMarkUnread}, nil
 	case "sync_all":
 		return callbackPayload{Kind: callbackSyncAll}, nil
@@ -165,6 +168,8 @@ func parseCallbackData(raw string) (callbackPayload, error) {
 		return callbackPayload{Kind: callbackRemoveManga}, nil
 	case "main_menu":
 		return callbackPayload{Kind: callbackMainMenu}, nil
+	case "cancel_pending":
+		return callbackPayload{Kind: callbackCancelPending}, nil
 	default:
 		return callbackPayload{Kind: callbackUnknown}, fmt.Errorf("unknown callback action: %s", parts[0])
 	}
@@ -296,6 +301,10 @@ func cbGenPair() string {
 
 func cbMainMenu() string {
 	return "main_menu"
+}
+
+func cbCancelPending() string {
+	return "cancel_pending"
 }
 
 func cbSelectManga(mangaID int, nextAction string) string {

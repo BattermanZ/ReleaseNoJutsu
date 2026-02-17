@@ -48,6 +48,9 @@ type BotButtonsCopy struct {
 	YesDelete           string
 	YesConfirm          string
 	Back                string
+	BackToManga         string
+	BackToList          string
+	CancelAdd           string
 	Prev                string
 	Next                string
 }
@@ -74,6 +77,7 @@ type BotPromptsCopy struct {
 	CannotAccessManga      string
 	CannotLoadManga        string
 	CannotLoadMangaDetails string
+	AddMangaCancelled      string
 	TitleNotAvailable      string
 }
 
@@ -225,6 +229,9 @@ var Copy = BotCopy{
 		YesDelete:           "✅ Yes, Delete",
 		YesConfirm:          "✅ Yes",
 		Back:                "⬅️ Back",
+		BackToManga:         "⬅️ Back to Manga",
+		BackToList:          "⬅️ Back to My Manga",
+		CancelAdd:           "❌ Cancel Add",
 		Prev:                "⬅️ Prev",
 		Next:                "Next ➡️",
 	},
@@ -250,6 +257,7 @@ var Copy = BotCopy{
 		CannotAccessManga:      "❌ I couldn't access that manga right now. Try again in a moment.",
 		CannotLoadManga:        "❌ I couldn't load that manga right now. Try again in a moment.",
 		CannotLoadMangaDetails: "❌ I couldn't load the manga details. Try again in a moment.",
+		AddMangaCancelled:      "✅ Add manga canceled.",
 		TitleNotAvailable:      "Title not available",
 	},
 	Errors: BotErrorsCopy{
