@@ -363,6 +363,12 @@ func TestHandleGeneratePairingCode_AdminSuccess(t *testing.T) {
 	if !strings.Contains(got, "Pairing code:") {
 		t.Fatalf("message=%q, want to contain Pairing code", got)
 	}
+	if !strings.Contains(got, "https://t.me/ReleaseNoJutsuBot") {
+		t.Fatalf("message=%q, want to contain bot link", got)
+	}
+	if !strings.Contains(got, "How to join:") {
+		t.Fatalf("message=%q, want to contain onboarding steps", got)
+	}
 
 	rx := regexp.MustCompile(`[A-F0-9]{4}-[A-F0-9]{4}`)
 	code := rx.FindString(got)
