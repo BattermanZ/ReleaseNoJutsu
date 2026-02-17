@@ -24,7 +24,7 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		case appcopy.Copy.Commands.Help:
 			b.sendHelpMessage(message.Chat.ID)
 		case appcopy.Copy.Commands.Status:
-			b.sendStatusMessage(message.Chat.ID)
+			b.sendStatusMessage(message.Chat.ID, message.From.ID)
 		case appcopy.Copy.Commands.GenPair:
 			b.handleGeneratePairingCode(message.Chat.ID, message.From.ID)
 		default:

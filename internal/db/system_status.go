@@ -41,3 +41,35 @@ func (db *DB) GetStatus() (Status, error) {
 	}
 	return s, nil
 }
+
+func (db *DB) GetStatusByUser(userID int64) (Status, error) {
+	var s Status
+
+	if err := db.QueryRow("SELECT COUNT(*) FROM manga WHERE user_id = ?", userID).Scan(&s.MangaCount); err != nil {
+		return Status{}, err
+	}
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM chapters c
+		INNER JOIN manga m ON m.id = c.manga_id
+		WHERE m.user_id = ?
+	`, userID).Scan(&s.ChapterCount); err != nil {
+		return Status{}, err
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE telegram_id = ?", userID).Scan(&s.UserCount); err != nil {
+		return Status{}, err
+	}
+	if err := db.QueryRow("SELECT COALESCE(SUM(unread_count), 0) FROM manga WHERE user_id = ?", userID).Scan(&s.UnreadTotal); err != nil {
+		return Status{}, err
+	}
+
+	var lastRun sql.NullTime
+	if err := db.QueryRow("SELECT last_update FROM system_status WHERE key = 'cron_last_run'").Scan(&lastRun); err != nil && err != sql.ErrNoRows {
+		return Status{}, err
+	}
+	if lastRun.Valid {
+		s.CronLastRun = lastRun.Time
+		s.HasCronLastRun = true
+	}
+	return s, nil
+}

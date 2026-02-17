@@ -86,10 +86,10 @@ func (b *Bot) sendHelpMessage(chatID int64) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) sendStatusMessage(chatID int64) {
+func (b *Bot) sendStatusMessage(chatID int64, userID int64) {
 	b.logAction(chatID, "Sent status", "")
 
-	status, err := b.db.GetStatus()
+	status, err := b.db.GetStatusByUser(userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting status: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotRetrieveStatus)
