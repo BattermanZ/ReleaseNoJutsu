@@ -173,6 +173,9 @@ type BotInfoCopy struct {
 	NewChapterAlertUnreadPlain  string
 	NewChapterAlertWarningPlain string
 	NewChapterAlertFooterPlain  string
+	BreadcrumbPathFormat        string
+	BreadcrumbUnreadRoot        string
+	BreadcrumbReadRoot          string
 }
 
 type BotMenusCopy struct {
@@ -379,6 +382,9 @@ Use /start anytime to explore the menu!`,
 		NewChapterAlertUnreadPlain:  "\nYou now have %d unread chapter(s) for this series.\n",
 		NewChapterAlertWarningPlain: "\n⚠️ Heads up: you have 3+ unread chapters piling up for this manga!",
 		NewChapterAlertFooterPlain:  "\nUse /%s to mark chapters as read or explore other options.",
+		BreadcrumbPathFormat:        "Path: %s",
+		BreadcrumbUnreadRoot:        "Unread",
+		BreadcrumbReadRoot:          "Read",
 	},
 	Menus: BotMenusCopy{
 		CheckNewTitle:   "🔍 *Check for New Chapters*\n\nSelect a manga to see if new chapters are available:",

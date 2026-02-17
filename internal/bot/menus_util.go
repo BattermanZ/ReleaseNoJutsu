@@ -120,3 +120,30 @@ func (b *Bot) sendMangaScopedMessage(msg tgbotapi.MessageConfig, mangaID int) {
 	}
 	b.sendMessageWithMainMenuButton(msg)
 }
+
+func (b *Bot) sendListScopedMessage(msg tgbotapi.MessageConfig) {
+	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: appendBackToMangaListRow(nil),
+	}
+	b.sendMessageWithMainMenuButton(msg)
+}
+
+func breadcrumbLine(root string, buckets ...string) string {
+	parts := []string{strings.TrimSpace(root)}
+	for _, b := range buckets {
+		b = strings.TrimSpace(b)
+		if b == "" {
+			continue
+		}
+		parts = append(parts, b)
+	}
+	return fmt.Sprintf(appcopy.Copy.Info.BreadcrumbPathFormat, strings.Join(parts, " > "))
+}
+
+func unreadBreadcrumbLine(buckets ...string) string {
+	return breadcrumbLine(appcopy.Copy.Info.BreadcrumbUnreadRoot, buckets...)
+}
+
+func readBreadcrumbLine(buckets ...string) string {
+	return breadcrumbLine(appcopy.Copy.Info.BreadcrumbReadRoot, buckets...)
+}
