@@ -81,12 +81,25 @@ func (b *Bot) sendStatusMessage(chatID int64, userID int64) {
 		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
+	isAdmin := b.isAdmin(userID)
+	if isAdmin {
+		globalStatus, err := b.db.GetStatus()
+		if err != nil {
+			logger.LogMsg(logger.LogError, "Error getting global status: %v", err)
+			msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotRetrieveStatus)
+			b.sendMessageWithMainMenuButton(msg)
+			return
+		}
+		status.UserCount = globalStatus.UserCount
+	}
 
 	var bld strings.Builder
 	bld.WriteString("<b>" + appcopy.Copy.Info.StatusTitle + "</b>\n\n")
 	bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusTracked, status.MangaCount))
 	bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusChaptersStored, status.ChapterCount))
-	bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusRegisteredChats, status.UserCount))
+	if isAdmin {
+		bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusRegisteredChats, status.UserCount))
+	}
 	bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusTotalUnread, status.UnreadTotal))
 	if status.HasCronLastRun {
 		bld.WriteString(fmt.Sprintf(appcopy.Copy.Info.StatusLastRun, status.CronLastRun.Local().Format(time.RFC1123)))

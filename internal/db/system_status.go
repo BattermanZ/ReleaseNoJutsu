@@ -56,7 +56,7 @@ func (db *DB) GetStatusByUser(userID int64) (Status, error) {
 	`, userID).Scan(&s.ChapterCount); err != nil {
 		return Status{}, err
 	}
-	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE telegram_id = ?", userID).Scan(&s.UserCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE chat_id = ?", userID).Scan(&s.UserCount); err != nil {
 		return Status{}, err
 	}
 	if err := db.QueryRow("SELECT COALESCE(SUM(unread_count), 0) FROM manga WHERE user_id = ?", userID).Scan(&s.UnreadTotal); err != nil {
