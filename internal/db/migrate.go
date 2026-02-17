@@ -44,6 +44,26 @@ func (db *DB) Migrate(adminUserID int64) error {
 		}
 	}
 
+	hasUsersPendingState, err := db.hasColumn("users", "pending_state")
+	if err != nil {
+		return err
+	}
+	if !hasUsersPendingState {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN pending_state TEXT"); err != nil {
+			return err
+		}
+	}
+
+	hasUsersPendingPayload, err := db.hasColumn("users", "pending_payload")
+	if err != nil {
+		return err
+	}
+	if !hasUsersPendingPayload {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN pending_payload TEXT"); err != nil {
+			return err
+		}
+	}
+
 	if adminUserID > 0 {
 		if _, err := db.Exec(`
 			INSERT OR IGNORE INTO users (chat_id, is_admin, created_at)

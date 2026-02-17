@@ -49,8 +49,8 @@ func (b *Bot) handleAddManga(chatID int64, userID int64, mangaID string) {
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesMangaPlus, fmt.Sprintf("add_confirm:%s:1", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.NoMangaPlus, fmt.Sprintf("add_confirm:%s:0", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesMangaPlus, cbAddConfirm(mangaID, true)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.NoMangaPlus, cbAddConfirm(mangaID, false)),
 		),
 	)
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Prompts.MangaPlusQuestion, html.EscapeString(title)))

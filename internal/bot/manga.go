@@ -55,7 +55,7 @@ func (b *Bot) handleListManga(chatID int64, userID int64) {
 			label = label + fmt.Sprintf(appcopy.Copy.Labels.ListUnreadSuffix, unreadCount)
 		}
 		keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("manga_action:%d:menu", id)),
+			tgbotapi.NewInlineKeyboardButtonData(label, cbMangaAction(id, "menu")),
 		))
 	}
 
@@ -98,7 +98,7 @@ func (b *Bot) sendMangaSelectionMenu(chatID int64, userID int64, nextAction stri
 		if isMangaPlus != 0 {
 			displayTitle = appcopy.Copy.Labels.MangaPlusPrefix + displayTitle
 		}
-		callbackData := fmt.Sprintf("select_manga:%d:%s", id, nextAction)
+		callbackData := cbSelectManga(id, nextAction)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(displayTitle, callbackData),
 		})
@@ -188,22 +188,22 @@ func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.CheckNewShort, fmt.Sprintf("manga_action:%d:check_new", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.SyncAllShort, fmt.Sprintf("manga_action:%d:sync_all", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.CheckNewShort, cbMangaAction(mangaID, "check_new")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.SyncAllShort, cbMangaAction(mangaID, "sync_all")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkReadShort, fmt.Sprintf("manga_action:%d:mark_read", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, fmt.Sprintf("manga_action:%d:mark_all_read", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkReadShort, cbMangaAction(mangaID, "mark_read")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, cbMangaAction(mangaID, "mark_all_read")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkUnreadShort, fmt.Sprintf("manga_action:%d:list_read", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkUnreadShort, cbMangaAction(mangaID, "list_read")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Details, fmt.Sprintf("manga_action:%d:details", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.ToggleMangaPlus, fmt.Sprintf("manga_action:%d:toggle_plus", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Details, cbMangaAction(mangaID, "details")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.ToggleMangaPlus, cbMangaAction(mangaID, "toggle_plus")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveConfirm, fmt.Sprintf("manga_action:%d:remove_manga", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveConfirm, cbMangaAction(mangaID, "remove_manga")),
 		),
 	)
 
@@ -226,8 +226,8 @@ func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int) {
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesDelete, fmt.Sprintf("manga_action:%d:remove_manga_yes", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, fmt.Sprintf("manga_action:%d:menu", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesDelete, cbMangaAction(mangaID, "remove_manga_yes")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
 		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
@@ -246,8 +246,8 @@ func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int) {
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesConfirm, fmt.Sprintf("manga_action:%d:mark_all_read_yes", mangaID)),
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, fmt.Sprintf("manga_action:%d:menu", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.YesConfirm, cbMangaAction(mangaID, "mark_all_read_yes")),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
 		),
 	)
 	b.sendMessageWithMainMenuButton(msg)
@@ -315,10 +315,10 @@ func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
 	toggleLabel := appcopy.Copy.Buttons.ToggleMangaPlus
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(toggleLabel, fmt.Sprintf("manga_action:%d:toggle_plus", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(toggleLabel, cbMangaAction(mangaID, "toggle_plus")),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, fmt.Sprintf("manga_action:%d:mark_all_read", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkAllRead, cbMangaAction(mangaID, "mark_all_read")),
 		),
 	)
 	b.sendMessageWithMainMenuButton(msg)

@@ -50,6 +50,55 @@ func TestEnsureUser_IsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUserPendingStateLifecycle(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(): %v", err)
+	}
+
+	chatID := int64(12345)
+	ensureTestUser(t, database, chatID)
+
+	state, payload, hasState, err := database.GetUserPendingState(chatID)
+	if err != nil {
+		t.Fatalf("GetUserPendingState(empty): %v", err)
+	}
+	if hasState || state != "" || payload != "" {
+		t.Fatalf("unexpected initial pending state: state=%q payload=%q has=%v", state, payload, hasState)
+	}
+
+	if err := database.SetUserPendingState(chatID, "add_manga", "foo"); err != nil {
+		t.Fatalf("SetUserPendingState(): %v", err)
+	}
+	state, payload, hasState, err = database.GetUserPendingState(chatID)
+	if err != nil {
+		t.Fatalf("GetUserPendingState(after set): %v", err)
+	}
+	if !hasState || state != "add_manga" || payload != "foo" {
+		t.Fatalf("unexpected pending state after set: state=%q payload=%q has=%v", state, payload, hasState)
+	}
+
+	if err := database.ClearUserPendingState(chatID); err != nil {
+		t.Fatalf("ClearUserPendingState(): %v", err)
+	}
+	state, payload, hasState, err = database.GetUserPendingState(chatID)
+	if err != nil {
+		t.Fatalf("GetUserPendingState(after clear): %v", err)
+	}
+	if hasState || state != "" || payload != "" {
+		t.Fatalf("unexpected pending state after clear: state=%q payload=%q has=%v", state, payload, hasState)
+	}
+}
+
 func TestListManga_DoesNotHoldConnectionOpen(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := New(dbPath)

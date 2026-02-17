@@ -121,13 +121,13 @@ func (b *Bot) sendMarkReadDirectChaptersMenu(chatID int64, userID int64, mangaID
 		if strings.TrimSpace(ch.Title) != "" {
 			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
 			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mark_chapter:%d:%s", mangaID, ch.Number)),
+				tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterRead(mangaID, ch.Number)),
 			})
 			continue
 		}
 		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mark_chapter:%d:%s", mangaID, ch.Number)),
+			tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterRead(mangaID, ch.Number)),
 		})
 	}
 
@@ -179,17 +179,17 @@ func (b *Bot) sendMarkReadThousandsMenu(chatID int64, userID int64, mangaID int,
 	buttons := make([]tgbotapi.InlineKeyboardButton, 0, end-start)
 	for _, bucketStart := range starts[start:end] {
 		label := bucketLabel(bucketStart, 1000)
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mr_pick:%d:%d:%d", mangaID, 1000, bucketStart)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(label, cbMarkReadPick(mangaID, 1000, bucketStart)))
 	}
 	keyboard := appendButtonsInRows(nil, buttons, 2)
 
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mr_page:%d:%d", mangaID, page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, cbMarkReadPage(mangaID, page-1)))
 	}
 	if page < maxPage {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mr_page:%d:%d", mangaID, page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, cbMarkReadPage(mangaID, page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
@@ -228,12 +228,12 @@ func (b *Bot) sendMarkReadHundredsMenu(chatID int64, userID int64, mangaID int, 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var buttons []tgbotapi.InlineKeyboardButton
 	for _, start := range starts {
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 100), fmt.Sprintf("mr_pick:%d:%d:%d", mangaID, 100, start)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 100), cbMarkReadPick(mangaID, 100, start)))
 	}
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mr_back_root:%d", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkReadBackRoot(mangaID)),
 		})
 	}
 
@@ -270,12 +270,12 @@ func (b *Bot) sendMarkReadTensMenu(chatID int64, userID int64, mangaID int, hund
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var buttons []tgbotapi.InlineKeyboardButton
 	for _, start := range starts {
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 10), fmt.Sprintf("mr_pick:%d:%d:%d", mangaID, 10, start)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 10), cbMarkReadPick(mangaID, 10, start)))
 	}
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mr_back_hundreds:%d:%d", mangaID, hundredStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkReadBackHundreds(mangaID, hundredStart)),
 		})
 	}
 
@@ -329,30 +329,30 @@ func (b *Bot) sendMarkReadChaptersMenuPage(chatID int64, userID int64, mangaID i
 		if strings.TrimSpace(ch.Title) != "" {
 			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
 			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mark_chapter:%d:%s", mangaID, ch.Number)),
+				tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterRead(mangaID, ch.Number)),
 			})
 			continue
 		}
 		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mark_chapter:%d:%s", mangaID, ch.Number)),
+			tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterRead(mangaID, ch.Number)),
 		})
 	}
 
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mr_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, cbMarkReadChapterPage(mangaID, tenStart, root, page-1)))
 	}
 	if (page+1)*pageSize < totalInRange {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mr_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, cbMarkReadChapterPage(mangaID, tenStart, root, page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
 	}
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mr_back_tens:%d:%d", mangaID, tenStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkReadBackTens(mangaID, tenStart)),
 		})
 	}
 

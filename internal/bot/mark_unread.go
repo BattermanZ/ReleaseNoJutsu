@@ -121,13 +121,13 @@ func (b *Bot) sendMarkUnreadDirectChaptersMenu(chatID int64, userID int64, manga
 		if strings.TrimSpace(ch.Title) != "" {
 			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
 			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+				tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterUnread(mangaID, ch.Number)),
 			})
 			continue
 		}
 		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+			tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterUnread(mangaID, ch.Number)),
 		})
 	}
 
@@ -179,17 +179,17 @@ func (b *Bot) sendMarkUnreadThousandsMenu(chatID int64, userID int64, mangaID in
 	buttons := make([]tgbotapi.InlineKeyboardButton, 0, end-start)
 	for _, bucketStart := range starts[start:end] {
 		label := bucketLabel(bucketStart, 1000)
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("mu_pick:%d:%d:%d", mangaID, 1000, bucketStart)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(label, cbMarkUnreadPick(mangaID, 1000, bucketStart)))
 	}
 	keyboard := appendButtonsInRows(nil, buttons, 2)
 
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mu_page:%d:%d", mangaID, page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, cbMarkUnreadPage(mangaID, page-1)))
 	}
 	if page < maxPage {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mu_page:%d:%d", mangaID, page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, cbMarkUnreadPage(mangaID, page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
@@ -228,12 +228,12 @@ func (b *Bot) sendMarkUnreadHundredsMenu(chatID int64, userID int64, mangaID int
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var buttons []tgbotapi.InlineKeyboardButton
 	for _, start := range starts {
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 100), fmt.Sprintf("mu_pick:%d:%d:%d", mangaID, 100, start)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 100), cbMarkUnreadPick(mangaID, 100, start)))
 	}
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_root:%d", mangaID)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackRoot(mangaID)),
 		})
 	}
 
@@ -270,12 +270,12 @@ func (b *Bot) sendMarkUnreadTensMenu(chatID int64, userID int64, mangaID int, hu
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	var buttons []tgbotapi.InlineKeyboardButton
 	for _, start := range starts {
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 10), fmt.Sprintf("mu_pick:%d:%d:%d", mangaID, 10, start)))
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(bucketLabel(start, 10), cbMarkUnreadPick(mangaID, 10, start)))
 	}
 	keyboard = appendButtonsInRows(keyboard, buttons, 2)
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_hundreds:%d:%d", mangaID, hundredStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackHundreds(mangaID, hundredStart)),
 		})
 	}
 
@@ -329,30 +329,30 @@ func (b *Bot) sendMarkUnreadChaptersMenuPage(chatID int64, userID int64, mangaID
 		if strings.TrimSpace(ch.Title) != "" {
 			label := fmt.Sprintf(appcopy.Copy.Labels.ChapterWithTitle, ch.Number, ch.Title)
 			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+				tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterUnread(mangaID, ch.Number)),
 			})
 			continue
 		}
 		label := fmt.Sprintf(appcopy.Copy.Labels.ChapterPrefix, ch.Number)
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("unread_chapter:%d:%s", mangaID, ch.Number)),
+			tgbotapi.NewInlineKeyboardButtonData(label, cbMarkChapterUnread(mangaID, ch.Number)),
 		})
 	}
 
 	// Pagination.
 	var nav []tgbotapi.InlineKeyboardButton
 	if page > 0 {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page-1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Prev, cbMarkUnreadChapterPage(mangaID, tenStart, root, page-1)))
 	}
 	if (page+1)*pageSize < totalInRange {
-		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, fmt.Sprintf("mu_chpage:%d:%d:%d:%d", mangaID, tenStart, boolToInt(root), page+1)))
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Next, cbMarkUnreadChapterPage(mangaID, tenStart, root, page+1)))
 	}
 	if len(nav) > 0 {
 		keyboard = append(keyboard, nav)
 	}
 	if !root {
 		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, fmt.Sprintf("mu_back_tens:%d:%d", mangaID, tenStart)),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Back, cbMarkUnreadBackTens(mangaID, tenStart)),
 		})
 	}
 

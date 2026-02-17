@@ -16,31 +16,16 @@ func (b *Bot) sendMainMenu(chatID int64) {
 
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.AddManga, "add_manga"),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.AddManga, cbAddManga()),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.ListManga, "list_manga"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.CheckNew, "check_new"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkRead, "mark_read"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.SyncAll, "sync_all"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MarkUnread, "list_read"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.RemoveManga, "remove_manga"),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.ListManga, cbListManga()),
 		),
 	}
 
 	if b.isAdmin(chatID) {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.GeneratePairingCode, "gen_pair"),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.GeneratePairingCode, cbGenPair()),
 		))
 	}
 
@@ -58,7 +43,7 @@ func (b *Bot) sendMainMenu(chatID int64) {
 func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 	mainMenuButton := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MainMenu, "main_menu"),
+			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MainMenu, cbMainMenu()),
 		),
 	)
 

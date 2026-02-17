@@ -10,6 +10,8 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
+const pendingStateAddManga = "add_manga"
+
 func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	details := fmt.Sprintf("chat_id=%d is_command=%t len=%d", message.Chat.ID, message.IsCommand(), len(message.Text))
 	if message.IsCommand() {
@@ -18,6 +20,10 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	b.logAction(message.From.ID, "Received message", details)
 
 	if message.IsCommand() {
+		if err := b.db.ClearUserPendingState(message.From.ID); err != nil {
+			logger.LogMsg(logger.LogWarning, "Failed clearing pending state for %d: %v", message.From.ID, err)
+		}
+
 		switch message.Command() {
 		case appcopy.Copy.Commands.Start:
 			b.sendMainMenu(message.Chat.ID)
@@ -33,6 +39,8 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 				logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", message.Chat.ID, err)
 			}
 		}
+	} else if b.consumePendingInput(message) {
+		return
 	} else if message.ReplyToMessage != nil && message.ReplyToMessage.Text != "" {
 		b.handleReply(message)
 	} else {
@@ -56,18 +64,45 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 	}
 }
 
+func (b *Bot) consumePendingInput(message *tgbotapi.Message) bool {
+	state, _, hasState, err := b.db.GetUserPendingState(message.From.ID)
+	if err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed loading pending state for %d: %v", message.From.ID, err)
+		return false
+	}
+	if !hasState {
+		return false
+	}
+
+	if err := b.db.ClearUserPendingState(message.From.ID); err != nil {
+		logger.LogMsg(logger.LogWarning, "Failed clearing pending state for %d: %v", message.From.ID, err)
+	}
+
+	switch state {
+	case pendingStateAddManga:
+		replyText := strings.TrimSpace(message.Text)
+		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
+			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
+			return true
+		}
+		b.handleAddManga(message.Chat.ID, message.From.ID, replyText)
+		return true
+	default:
+		logger.LogMsg(logger.LogWarning, "Unknown pending state %q for user %d", state, message.From.ID)
+		return false
+	}
+}
+
 func (b *Bot) handleReply(message *tgbotapi.Message) {
 	b.logAction(message.From.ID, "Received reply", fmt.Sprintf("chat_id=%d len=%d", message.Chat.ID, len(message.Text)))
 
-	replyTo := message.ReplyToMessage.Text
 	replyText := strings.TrimSpace(message.Text)
 
-	// Add manga flow (supports URL or raw UUID).
-	if strings.Contains(replyTo, appcopy.Copy.Prompts.AddMangaTitlePlain) {
-		if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
-			b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
-			return
-		}
+	if mangaID, err := b.mdClient.ExtractMangaIDFromURL(replyText); err == nil {
+		b.handleAddManga(message.Chat.ID, message.From.ID, mangaID)
+		return
+	}
+	if b.looksLikeMangaDexID(replyText) {
 		b.handleAddManga(message.Chat.ID, message.From.ID, replyText)
 		return
 	}

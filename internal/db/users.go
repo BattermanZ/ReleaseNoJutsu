@@ -56,3 +56,32 @@ func (db *DB) IsUserAuthorized(chatID int64) (bool, bool, error) {
 	}
 	return true, isAdmin != 0, nil
 }
+
+func (db *DB) SetUserPendingState(chatID int64, state, payload string) error {
+	_, err := db.Exec("UPDATE users SET pending_state = ?, pending_payload = ? WHERE chat_id = ?", state, payload, chatID)
+	return err
+}
+
+func (db *DB) ClearUserPendingState(chatID int64) error {
+	_, err := db.Exec("UPDATE users SET pending_state = NULL, pending_payload = NULL WHERE chat_id = ?", chatID)
+	return err
+}
+
+func (db *DB) GetUserPendingState(chatID int64) (state string, payload string, hasState bool, err error) {
+	var stateVal sql.NullString
+	var payloadVal sql.NullString
+	err = db.QueryRow("SELECT pending_state, pending_payload FROM users WHERE chat_id = ?", chatID).Scan(&stateVal, &payloadVal)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	if !stateVal.Valid || stateVal.String == "" {
+		return "", "", false, nil
+	}
+	if payloadVal.Valid {
+		return stateVal.String, payloadVal.String, true, nil
+	}
+	return stateVal.String, "", true, nil
+}

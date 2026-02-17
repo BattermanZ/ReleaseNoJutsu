@@ -31,7 +31,9 @@ func (db *DB) CreateTables() error {
 		CREATE TABLE IF NOT EXISTS users (
 			chat_id INTEGER PRIMARY KEY,
 			is_admin INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMP
+			created_at TIMESTAMP,
+			pending_state TEXT,
+			pending_payload TEXT
 		);
 
 		CREATE TABLE IF NOT EXISTS pairing_codes (
