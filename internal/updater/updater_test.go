@@ -197,3 +197,85 @@ func TestSyncAll_PrefersFrenchThenEnglishAndClearsOthers(t *testing.T) {
 		t.Fatalf("chapter 3 title=%q, want English 3", got3.Title)
 	}
 }
+
+func TestUpdateOne_DoesNotPoisonWatermarkWithFuturePublishAt(t *testing.T) {
+	lastSeen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	created := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	futurePublish := time.Date(2037, 12, 31, 15, 0, 0, 0, time.UTC)
+
+	store := &fakeStore{
+		mangaDexID: "md",
+		title:      "Title",
+		lastSeenAt: lastSeen,
+	}
+	md := &fakeMangaDex{
+		feed: &mangadex.ChapterFeedResponse{
+			Data: []mangadex.Chapter{
+				{
+					ID: "c1",
+					Attributes: mangadex.ChapterAttributes{
+						Chapter:     "1",
+						Title:       "One",
+						CreatedAt:   created,
+						ReadableAt:  created,
+						PublishedAt: futurePublish,
+					},
+				},
+			},
+		},
+	}
+
+	u := New(store, md, md)
+	res, err := u.UpdateOne(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("UpdateOne(): %v", err)
+	}
+
+	if len(store.added) != 1 {
+		t.Fatalf("added=%d, want 1", len(store.added))
+	}
+	if !res.LastSeenAt.Equal(created) {
+		t.Fatalf("LastSeenAt=%v, want %v", res.LastSeenAt, created)
+	}
+	if store.added[0].PublishedAt.After(time.Now().UTC().Add(24 * time.Hour)) {
+		t.Fatalf("published_at was not normalized, got %v", store.added[0].PublishedAt)
+	}
+}
+
+func TestUpdateOne_SkipsFuturePublishOnlyTimestamps(t *testing.T) {
+	lastSeen := time.Time{}
+	futurePublish := time.Date(2037, 12, 31, 15, 0, 0, 0, time.UTC)
+
+	store := &fakeStore{
+		mangaDexID: "md",
+		title:      "Title",
+		lastSeenAt: lastSeen,
+	}
+	md := &fakeMangaDex{
+		feed: &mangadex.ChapterFeedResponse{
+			Data: []mangadex.Chapter{
+				{
+					ID: "c1",
+					Attributes: mangadex.ChapterAttributes{
+						Chapter:     "1",
+						Title:       "One",
+						PublishedAt: futurePublish,
+					},
+				},
+			},
+		},
+	}
+
+	u := New(store, md, md)
+	res, err := u.UpdateOne(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("UpdateOne(): %v", err)
+	}
+
+	if len(store.added) != 0 {
+		t.Fatalf("added=%d, want 0 for publishAt-only future sentinel", len(store.added))
+	}
+	if !res.LastSeenAt.Equal(lastSeen) {
+		t.Fatalf("LastSeenAt=%v, want unchanged %v", res.LastSeenAt, lastSeen)
+	}
+}

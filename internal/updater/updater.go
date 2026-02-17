@@ -44,6 +44,16 @@ type Result struct {
 	Err         error
 }
 
+type normalizedChapterTimes struct {
+	PublishedAt time.Time
+	ReadableAt  time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	SeenAt      time.Time
+}
+
+const maxFutureTimestampSkew = 24 * time.Hour
+
 func New(store Store, md MangaDex, syncMD MangaDex) *Updater {
 	return &Updater{
 		store:        store,
@@ -59,6 +69,7 @@ func (u *Updater) SyncAll(ctx context.Context, mangaID int) (synced int, maxSeen
 	}
 
 	const pageLimit = 500
+	now := time.Now().UTC()
 	offset := 0
 	maxSeenAt = currentLastSeenAt
 	// Keep only one entry per chapter key to avoid duplicates across languages/groups.
@@ -74,8 +85,9 @@ func (u *Updater) SyncAll(ctx context.Context, mangaID int) (synced int, maxSeen
 		}
 
 		for _, chapter := range feed.Data {
-			seenAt := chapterSeenAt(chapter.Attributes).UTC()
-			if maxSeenAt.Before(seenAt) {
+			times := normalizeChapterTimes(chapter.Attributes, now)
+			seenAt := times.SeenAt
+			if !seenAt.IsZero() && maxSeenAt.Before(seenAt) {
 				maxSeenAt = seenAt
 			}
 
@@ -113,25 +125,13 @@ func (u *Updater) SyncAll(ctx context.Context, mangaID int) (synced int, maxSeen
 
 	for _, key := range keys {
 		chapter := seen[key]
-		publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
-		readableAtUTC := chapter.Attributes.ReadableAt.UTC()
-		if chapter.Attributes.ReadableAt.IsZero() {
-			readableAtUTC = publishedAtUTC
-		}
-		createdAtUTC := chapter.Attributes.CreatedAt.UTC()
-		if chapter.Attributes.CreatedAt.IsZero() {
-			createdAtUTC = readableAtUTC
-		}
-		updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
-		if chapter.Attributes.UpdatedAt.IsZero() {
-			updatedAtUTC = createdAtUTC
-		}
+		times := normalizeChapterTimes(chapter.Attributes, now)
 
 		title := ""
 		if lang := strings.ToLower(strings.TrimSpace(chapter.Attributes.Language)); lang == "fr" || lang == "en" {
 			title = chapter.Attributes.Title
 		}
-		if err := u.store.AddChapter(int64(mangaID), key, title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC); err != nil {
+		if err := u.store.AddChapter(int64(mangaID), key, title, times.PublishedAt, times.ReadableAt, times.CreatedAt, times.UpdatedAt); err != nil {
 			return synced, maxSeenAt, err
 		}
 		synced++
@@ -183,6 +183,7 @@ func (u *Updater) UpdateOne(ctx context.Context, mangaID int) (Result, error) {
 
 func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, title string, lastSeenAt time.Time) (Result, error) {
 	const pageLimit = 100
+	now := time.Now().UTC()
 
 	type chapterWithSeenAt struct {
 		info   mangadex.ChapterInfo
@@ -205,32 +206,21 @@ func (u *Updater) updateManga(ctx context.Context, mangaID int, mangaDexID, titl
 
 		pageHasAnyNew := false
 		for _, chapter := range feed.Data {
-			seenAt := chapterSeenAt(chapter.Attributes).UTC()
-			if maxSeenAt.Before(seenAt) {
+			times := normalizeChapterTimes(chapter.Attributes, now)
+			seenAt := times.SeenAt
+			if !seenAt.IsZero() && maxSeenAt.Before(seenAt) {
 				maxSeenAt = seenAt
 			}
 
-			if !seenAt.After(lastSeenAt.UTC()) {
+			// If a chapter has no trustworthy seen-at timestamp (e.g. publishAt sentinel only),
+			// skip it in incremental checks to avoid poisoning the watermark.
+			if seenAt.IsZero() || !seenAt.After(lastSeenAt.UTC()) {
 				continue
 			}
 			pageHasAnyNew = true
 
-			publishedAtUTC := chapter.Attributes.PublishedAt.UTC()
-			readableAtUTC := chapter.Attributes.ReadableAt.UTC()
-			if chapter.Attributes.ReadableAt.IsZero() {
-				readableAtUTC = publishedAtUTC
-			}
-			createdAtUTC := chapter.Attributes.CreatedAt.UTC()
-			if chapter.Attributes.CreatedAt.IsZero() {
-				createdAtUTC = readableAtUTC
-			}
-			updatedAtUTC := chapter.Attributes.UpdatedAt.UTC()
-			if chapter.Attributes.UpdatedAt.IsZero() {
-				updatedAtUTC = createdAtUTC
-			}
-
 			key := chapterKey(chapter)
-			if err := u.store.AddChapter(int64(mangaID), key, chapter.Attributes.Title, publishedAtUTC, readableAtUTC, createdAtUTC, updatedAtUTC); err != nil {
+			if err := u.store.AddChapter(int64(mangaID), key, chapter.Attributes.Title, times.PublishedAt, times.ReadableAt, times.CreatedAt, times.UpdatedAt); err != nil {
 				return Result{}, err
 			}
 
@@ -304,14 +294,77 @@ func FormatNewChaptersMessage(mangaTitle string, newChapters []mangadex.ChapterI
 	return messageBuilder.String()
 }
 
-func chapterSeenAt(attrs mangadex.ChapterAttributes) time.Time {
-	if !attrs.CreatedAt.IsZero() {
-		return attrs.CreatedAt
+func normalizeChapterTimes(attrs mangadex.ChapterAttributes, now time.Time) normalizedChapterTimes {
+	rawPublished := attrs.PublishedAt.UTC()
+	rawReadable := attrs.ReadableAt.UTC()
+	rawCreated := attrs.CreatedAt.UTC()
+	rawUpdated := attrs.UpdatedAt.UTC()
+
+	readable := rawReadable
+	if readable.IsZero() && !isSuspiciousFutureTimestamp(rawPublished, now) {
+		readable = rawPublished
 	}
-	if !attrs.ReadableAt.IsZero() {
-		return attrs.ReadableAt
+
+	created := rawCreated
+	if created.IsZero() {
+		if !rawReadable.IsZero() {
+			created = rawReadable
+		} else if !isSuspiciousFutureTimestamp(rawPublished, now) {
+			created = rawPublished
+		}
 	}
-	return attrs.PublishedAt
+
+	updated := rawUpdated
+	if updated.IsZero() {
+		switch {
+		case !created.IsZero():
+			updated = created
+		case !readable.IsZero():
+			updated = readable
+		}
+	}
+
+	published := rawPublished
+	if isSuspiciousFutureTimestamp(rawPublished, now) {
+		// MangaDex sometimes emits sentinel publishAt values far in the future
+		// (e.g. 2037-12-31 on MANGA Plus entries). Keep persisted published_at sane.
+		switch {
+		case !rawCreated.IsZero():
+			published = rawCreated
+		case !rawReadable.IsZero():
+			published = rawReadable
+		case !created.IsZero():
+			published = created
+		case !readable.IsZero():
+			published = readable
+		default:
+			published = time.Time{}
+		}
+	}
+
+	seen := created
+	if seen.IsZero() {
+		if !readable.IsZero() {
+			seen = readable
+		} else {
+			seen = published
+		}
+	}
+
+	return normalizedChapterTimes{
+		PublishedAt: published,
+		ReadableAt:  readable,
+		CreatedAt:   created,
+		UpdatedAt:   updated,
+		SeenAt:      seen,
+	}
+}
+
+func isSuspiciousFutureTimestamp(ts, now time.Time) bool {
+	if ts.IsZero() {
+		return false
+	}
+	return ts.After(now.Add(maxFutureTimestampSkew))
 }
 
 func chapterKey(ch mangadex.Chapter) string {

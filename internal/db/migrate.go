@@ -233,11 +233,23 @@ func (db *DB) Migrate(adminUserID int64) error {
 		return err
 	}
 
+	// MangaDex may return publishAt sentinel values far in the future (e.g. 2037-12-31).
+	// Normalize those legacy rows to reliable chapter timestamps when available.
+	if _, err := db.Exec(`
+		UPDATE chapters
+		SET published_at = COALESCE(created_at, readable_at, published_at)
+		WHERE published_at IS NOT NULL
+		  AND datetime(published_at) > datetime('now', '+1 day')
+		  AND (created_at IS NOT NULL OR readable_at IS NOT NULL)
+	`); err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`
 		UPDATE manga
 		SET last_seen_at = COALESCE(
 			(
-				SELECT MAX(COALESCE(created_at, readable_at, published_at))
+				SELECT MAX(COALESCE(created_at, readable_at))
 				FROM chapters
 				WHERE chapters.manga_id = manga.id
 			),
@@ -248,13 +260,30 @@ func (db *DB) Migrate(adminUserID int64) error {
 		return err
 	}
 
+	// Repair any watermark poisoned by future timestamps.
+	if _, err := db.Exec(`
+		UPDATE manga
+		SET last_seen_at = COALESCE(
+			(
+				SELECT MAX(COALESCE(created_at, readable_at))
+				FROM chapters
+				WHERE chapters.manga_id = manga.id
+			),
+			last_checked
+		)
+		WHERE last_seen_at IS NOT NULL
+		  AND datetime(last_seen_at) > datetime('now', '+1 day')
+	`); err != nil {
+		return err
+	}
+
 	// Backfill last_read_at from legacy per-chapter flags if present.
 	if hasMangaLastReadAt && hasChaptersIsRead {
 		if _, err := db.Exec(`
 			UPDATE manga
 			SET last_read_at = COALESCE(
 				(
-					SELECT MAX(COALESCE(created_at, readable_at, published_at))
+					SELECT MAX(COALESCE(created_at, readable_at, CASE WHEN datetime(published_at) <= datetime('now', '+1 day') THEN published_at END))
 					FROM chapters
 					WHERE chapters.manga_id = manga.id AND is_read = true
 				),
@@ -273,14 +302,14 @@ func (db *DB) Migrate(adminUserID int64) error {
 			SET last_read_number = (
 				SELECT MAX(CAST(chapter_number AS REAL))
 				FROM chapters
-				WHERE chapters.manga_id = manga.id
-				  AND chapter_number GLOB '[0-9]*'
-				  AND chapter_number NOT GLOB '*[^0-9.]*'
-				  AND chapter_number NOT GLOB '*.*.*'
-				  AND COALESCE(created_at, readable_at, published_at) <= COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
-			)
-			WHERE last_read_number IS NULL AND last_read_at IS NOT NULL
-		`); err != nil {
+					WHERE chapters.manga_id = manga.id
+					  AND chapter_number GLOB '[0-9]*'
+					  AND chapter_number NOT GLOB '*[^0-9.]*'
+					  AND chapter_number NOT GLOB '*.*.*'
+					  AND COALESCE(created_at, readable_at, CASE WHEN datetime(published_at) <= datetime('now', '+1 day') THEN published_at END) <= COALESCE(manga.last_read_at, '1970-01-01T00:00:00Z')
+				)
+				WHERE last_read_number IS NULL AND last_read_at IS NOT NULL
+			`); err != nil {
 			return err
 		}
 	}

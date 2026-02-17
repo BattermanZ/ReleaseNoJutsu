@@ -494,3 +494,74 @@ func TestListReadBucketStartsAndRangeListing(t *testing.T) {
 		t.Fatalf("ListReadNumericChaptersInRange()=%v, want [1115]", chs)
 	}
 }
+
+func TestMigrate_RepairsFuturePublishAtAndLastSeenAt(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if err := database.CreateTables(); err != nil {
+		t.Fatalf("CreateTables(): %v", err)
+	}
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(initial): %v", err)
+	}
+
+	ensureTestUser(t, database, 1)
+	mangaID, err := database.AddManga("0b094aab-0cfb-4837-a49b-7267bdb86bec", "Boruto - Two Blue Vortex", 1)
+	if err != nil {
+		t.Fatalf("AddManga(): %v", err)
+	}
+
+	created := time.Date(2023, 8, 21, 1, 0, 40, 0, time.UTC)
+	readable := time.Date(2023, 8, 21, 1, 0, 41, 0, time.UTC)
+	futurePublish := time.Date(2037, 12, 31, 15, 0, 0, 0, time.UTC)
+
+	if _, err := database.Exec(`
+		INSERT INTO chapters (manga_id, chapter_number, title, published_at, readable_at, created_at, updated_at)
+		VALUES (?, '1', 'Boruto', ?, ?, ?, ?)
+	`, mangaID, futurePublish, readable, created, created); err != nil {
+		t.Fatalf("insert chapter: %v", err)
+	}
+
+	if _, err := database.Exec("UPDATE manga SET last_seen_at = ? WHERE id = ?", futurePublish, mangaID); err != nil {
+		t.Fatalf("poison last_seen_at: %v", err)
+	}
+
+	if err := database.Migrate(1); err != nil {
+		t.Fatalf("Migrate(repair): %v", err)
+	}
+
+	var (
+		publishedStr string
+		lastSeenStr  string
+	)
+	if err := database.QueryRow("SELECT CAST(published_at AS TEXT) FROM chapters WHERE manga_id = ? AND chapter_number = '1'", mangaID).Scan(&publishedStr); err != nil {
+		t.Fatalf("select published_at: %v", err)
+	}
+	if err := database.QueryRow("SELECT CAST(last_seen_at AS TEXT) FROM manga WHERE id = ?", mangaID).Scan(&lastSeenStr); err != nil {
+		t.Fatalf("select last_seen_at: %v", err)
+	}
+
+	publishedAt, err := parseSQLiteTime(publishedStr)
+	if err != nil {
+		t.Fatalf("parse published_at: %v", err)
+	}
+	lastSeenAt, err := parseSQLiteTime(lastSeenStr)
+	if err != nil {
+		t.Fatalf("parse last_seen_at: %v", err)
+	}
+
+	if publishedAt.After(time.Now().UTC().Add(24 * time.Hour)) {
+		t.Fatalf("published_at still in the future after migration repair: %v", publishedAt)
+	}
+	if lastSeenAt.After(time.Now().UTC().Add(24 * time.Hour)) {
+		t.Fatalf("last_seen_at still in the future after migration repair: %v", lastSeenAt)
+	}
+	if !lastSeenAt.Equal(created) {
+		t.Fatalf("last_seen_at=%v, want %v", lastSeenAt, created)
+	}
+}
