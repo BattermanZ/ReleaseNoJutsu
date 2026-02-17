@@ -197,7 +197,7 @@ var Copy = BotCopy{
 	},
 	Buttons: BotButtonsCopy{
 		AddManga:            "➕ Add Manga",
-		ListManga:           "📚 My Manga",
+		ListManga:           "📚 My Mangas",
 		CheckNew:            "🔍 Check for New Chapters",
 		MarkRead:            "✅ Mark as Read",
 		MarkUnread:          "↩️ Mark as Unread",
@@ -219,7 +219,7 @@ var Copy = BotCopy{
 		YesConfirm:          "✅ Yes",
 		Back:                "⬅️ Back",
 		BackToManga:         "⬅️ Back to Manga",
-		BackToList:          "⬅️ Back to My Manga",
+		BackToList:          "⬅️ Back to My Mangas",
 		CancelAdd:           "❌ Cancel Add",
 		Prev:                "⬅️ Prev",
 		Next:                "Next ➡️",
@@ -251,7 +251,7 @@ var Copy = BotCopy{
 	},
 	Errors: BotErrorsCopy{
 		CouldNotRetrieveManga: "❌ I couldn't find that manga. Double-check the MangaDex ID or URL and try again!",
-		CouldNotAddManga:      "❌ I couldn't add that manga. It might already be in your list, or the ID is invalid. Open \"My Manga\" from the main menu to check your current list.",
+		CouldNotAddManga:      "❌ I couldn't add that manga. It might already be in your list, or the ID is invalid. Open \"My Mangas\" from the main menu to check your current list.",
 		SyncFailed:            "❌ Import failed for <b>%s</b>.\n\nYou can try again from the main menu using \"Import All Chapters\".",
 		SyncFailedSimple:      "❌ Import failed for <b>%s</b>. Try again in a moment.",
 		CannotCheckUpdates:    "❌ I couldn't check MangaDex for updates right now. Try again in a bit!",
@@ -282,7 +282,7 @@ I automatically check for updates every 6 hours, but you can also check manually
 
 *What I Can Do:*
 • *Add manga* - Start tracking a series by sending its MangaDex URL or ID
-• *My manga* - See which series you're currently tracking
+• *My mangas* - See which series you're currently tracking
 • *Check for new chapters* - See if any of your followed manga have fresh releases
 • *Mark as read* - Update your progress so I know which chapters you've finished
 • *Import all chapters* - Pull the full chapter history from MangaDex (useful when you're starting fresh)
