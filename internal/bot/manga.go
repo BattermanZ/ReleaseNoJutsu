@@ -20,7 +20,7 @@ func (b *Bot) handleListManga(chatID int64, userID int64) {
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotLoadManga)
-		b.sendListScopedMessage(msg)
+		b.sendMessageWithMainMenuButton(msg)
 		return
 	}
 	defer func() { _ = rows.Close() }()

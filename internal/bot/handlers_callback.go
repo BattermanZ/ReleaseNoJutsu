@@ -20,6 +20,11 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 		return
 	}
 
+	// Leaving add mode via any callback should reset pending text-input flow.
+	if payload.Kind != callbackAddManga {
+		b.clearPendingState(query.From.ID)
+	}
+
 	switch payload.Kind {
 	case callbackAddConfirm:
 		b.confirmAddManga(query.Message.Chat.ID, query.From.ID, payload.MangaDexID, payload.IsMangaPlus)
@@ -29,16 +34,13 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 		}
 		b.sendAddMangaPrompt(query.Message.Chat.ID)
 	case callbackListManga:
-		b.clearPendingState(query.From.ID)
 		b.handleListManga(query.Message.Chat.ID, query.From.ID)
 	case callbackCheckNew, callbackMarkRead, callbackMarkUnread, callbackSyncAll, callbackRemoveManga:
 		// UX: normalize to "manga first, action second" via the manga list.
-		b.clearPendingState(query.From.ID)
 		b.handleListManga(query.Message.Chat.ID, query.From.ID)
 	case callbackGenPair:
-		b.clearPendingState(query.From.ID)
 		b.handleGeneratePairingCode(query.Message.Chat.ID, query.From.ID)
-	case callbackSelectManga, callbackMangaAction:
+	case callbackMangaAction:
 		b.handleMangaSelection(query.Message.Chat.ID, query.From.ID, payload.MangaID, payload.NextAction)
 	case callbackMarkChapterRead:
 		b.handleMarkChapterAsRead(query.Message.Chat.ID, query.From.ID, payload.MangaID, payload.ChapterNumber)
@@ -87,10 +89,8 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	case callbackMarkChapterUnread:
 		b.handleMarkChapterAsUnread(query.Message.Chat.ID, query.From.ID, payload.MangaID, payload.ChapterNumber)
 	case callbackMainMenu:
-		b.clearPendingState(query.From.ID)
 		b.sendMainMenu(query.Message.Chat.ID)
 	case callbackCancelPending:
-		b.clearPendingState(query.From.ID)
 		msg := tgbotapi.NewMessage(query.Message.Chat.ID, appcopy.Copy.Prompts.AddMangaCancelled)
 		b.sendMessageWithMainMenuButton(msg)
 	default:

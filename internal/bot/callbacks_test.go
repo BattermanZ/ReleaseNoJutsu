@@ -26,3 +26,16 @@ func TestParseCallbackData_CancelPending(t *testing.T) {
 		t.Fatalf("kind=%v, want %v", payload.Kind, callbackCancelPending)
 	}
 }
+
+func TestParseCallbackData_SelectMangaBackCompat(t *testing.T) {
+	payload, err := parseCallbackData("select_manga:12:menu")
+	if err != nil {
+		t.Fatalf("parseCallbackData(select_manga): %v", err)
+	}
+	if payload.Kind != callbackMangaAction {
+		t.Fatalf("kind=%v, want %v", payload.Kind, callbackMangaAction)
+	}
+	if payload.MangaID != 12 || payload.NextAction != "menu" {
+		t.Fatalf("payload mismatch: %+v", payload)
+	}
+}

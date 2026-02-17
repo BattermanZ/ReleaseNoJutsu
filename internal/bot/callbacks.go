@@ -18,7 +18,6 @@ const (
 	callbackMarkUnread
 	callbackSyncAll
 	callbackGenPair
-	callbackSelectManga
 	callbackMangaAction
 	callbackMarkChapterRead
 	callbackMarkChapterUnread
@@ -97,7 +96,8 @@ func parseCallbackData(raw string) (callbackPayload, error) {
 			return callbackPayload{}, fmt.Errorf("invalid manga id: %w", err)
 		}
 		return callbackPayload{
-			Kind:       callbackSelectManga,
+			// Backward compatibility with older inline buttons.
+			Kind:       callbackMangaAction,
 			MangaID:    mangaID,
 			NextAction: parts[2],
 		}, nil
@@ -305,10 +305,6 @@ func cbMainMenu() string {
 
 func cbCancelPending() string {
 	return "cancel_pending"
-}
-
-func cbSelectManga(mangaID int, nextAction string) string {
-	return fmt.Sprintf("select_manga:%d:%s", mangaID, nextAction)
 }
 
 func cbMangaAction(mangaID int, nextAction string) string {
