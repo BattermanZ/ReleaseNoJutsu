@@ -99,7 +99,7 @@ func TestHandleCallbackQuery_MainMenu(t *testing.T) {
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
 			MessageID: 100,
-			Chat: &tgbotapi.Chat{ID: userID},
+			Chat:      &tgbotapi.Chat{ID: userID},
 		},
 	})
 
@@ -152,5 +152,20 @@ func TestHandleCallbackQuery_InvalidPayloadReturnsWithoutSend(t *testing.T) {
 
 	if got := len(api.sentMessageTexts(t)); got != 0 {
 		t.Fatalf("expected no messages for invalid callback parse, got %d", got)
+	}
+}
+
+func TestHandleCallbackQuery_MissingMessageReturnsWithoutSend(t *testing.T) {
+	b, _, api := setupBotForMessageTests(t)
+	userID := int64(42)
+
+	b.handleCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "cb-nil-message",
+		Data: cbMainMenu(),
+		From: &tgbotapi.User{ID: userID},
+	})
+
+	if got := len(api.sentMessageTexts(t)); got != 0 {
+		t.Fatalf("expected no messages for missing callback message, got %d", got)
 	}
 }

@@ -28,6 +28,14 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	if payload.Kind != callbackAddManga {
 		b.clearPendingState(query.From.ID)
 	}
+	if query.Message == nil || query.Message.Chat == nil {
+		logger.LogMsg(logger.LogWarning, "Callback query without chat message is unsupported: user=%d data=%q", query.From.ID, query.Data)
+		callback := tgbotapi.NewCallback(query.ID, "Action unavailable here.")
+		if _, reqErr := b.api.Request(callback); reqErr != nil {
+			logger.LogMsg(logger.LogError, "Error answering callback query: %v", reqErr)
+		}
+		return
+	}
 
 	switch payload.Kind {
 	case callbackAddConfirm:
