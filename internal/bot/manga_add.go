@@ -59,7 +59,8 @@ func (b *Bot) handleAddManga(chatID int64, userID int64, mangaID string) {
 	b.sendMessageWithMainMenuButton(msg)
 }
 
-func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isMangaPlus bool) {
+func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isMangaPlus bool, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Confirm add manga", fmt.Sprintf("%s (MANGA Plus=%t)", mangaDexID, isMangaPlus))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -69,7 +70,7 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error fetching manga data: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CouldNotRetrieveManga)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 
@@ -92,7 +93,7 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error inserting manga into database: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CouldNotAddManga)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 
@@ -103,7 +104,7 @@ func (b *Bot) confirmAddManga(chatID int64, userID int64, mangaDexID string, isM
 	}
 	startMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncStartWithPlus, html.EscapeString(title), html.EscapeString(mangaPlusLabel)))
 	startMsg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(startMsg)
+	b.sendMessageWithMainMenuButton(startMsg, cbTarget)
 
 	go func() {
 		syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

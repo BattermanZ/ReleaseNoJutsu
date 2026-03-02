@@ -110,7 +110,7 @@ func (b *Bot) mangaInputToID(text string) (string, bool) {
 	return "", false
 }
 
-func (b *Bot) sendAddMangaPrompt(chatID int64) {
+func (b *Bot) sendAddMangaPrompt(chatID int64, target ...*callbackEditTarget) {
 	msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.AddMangaTitle)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
@@ -118,7 +118,7 @@ func (b *Bot) sendAddMangaPrompt(chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.CancelAdd, cbCancelPending()),
 		),
 	)
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, firstCallbackTarget(target...))
 }
 
 func (b *Bot) looksLikeMangaDexID(text string) bool {

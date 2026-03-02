@@ -11,7 +11,19 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
-func (b *Bot) sendMainMenu(chatID int64) {
+type callbackEditTarget struct {
+	chatID    int64
+	messageID int
+}
+
+func firstCallbackTarget(targets ...*callbackEditTarget) *callbackEditTarget {
+	if len(targets) == 0 {
+		return nil
+	}
+	return targets[0]
+}
+
+func (b *Bot) sendMainMenu(chatID int64, target ...*callbackEditTarget) {
 	b.logAction(chatID, "Sent main menu", "")
 
 	rows := [][]tgbotapi.InlineKeyboardButton{
@@ -35,10 +47,10 @@ func (b *Bot) sendMainMenu(chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
-	b.sendOrEditMessage(msg)
+	b.sendOrEditMessage(msg, firstCallbackTarget(target...))
 }
 
-func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
+func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig, target ...*callbackEditTarget) {
 	mainMenuButton := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.MainMenu, cbMainMenu()),
@@ -56,11 +68,11 @@ func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 		msg.ReplyMarkup = mainMenuButton
 	}
 
-	b.sendOrEditMessage(msg)
+	b.sendOrEditMessage(msg, firstCallbackTarget(target...))
 }
 
-func (b *Bot) sendOrEditMessage(msg tgbotapi.MessageConfig) {
-	if b.tryEditActiveCallback(msg) {
+func (b *Bot) sendOrEditMessage(msg tgbotapi.MessageConfig, target *callbackEditTarget) {
+	if b.tryEditTarget(msg, target) {
 		return
 	}
 
@@ -69,19 +81,19 @@ func (b *Bot) sendOrEditMessage(msg tgbotapi.MessageConfig) {
 	}
 }
 
-func (b *Bot) tryEditActiveCallback(msg tgbotapi.MessageConfig) bool {
-	if b.activeCallback == nil || b.activeCallback.Chat == nil || b.activeCallback.Chat.ID != msg.ChatID {
+func (b *Bot) tryEditTarget(msg tgbotapi.MessageConfig, target *callbackEditTarget) bool {
+	if target == nil || target.chatID != msg.ChatID {
 		return false
 	}
 
 	var req tgbotapi.Chattable
 	if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
-		edit := tgbotapi.NewEditMessageTextAndMarkup(msg.ChatID, b.activeCallback.MessageID, msg.Text, keyboard)
+		edit := tgbotapi.NewEditMessageTextAndMarkup(msg.ChatID, target.messageID, msg.Text, keyboard)
 		edit.ParseMode = msg.ParseMode
 		edit.DisableWebPagePreview = msg.DisableWebPagePreview
 		req = edit
 	} else {
-		edit := tgbotapi.NewEditMessageText(msg.ChatID, b.activeCallback.MessageID, msg.Text)
+		edit := tgbotapi.NewEditMessageText(msg.ChatID, target.messageID, msg.Text)
 		edit.ParseMode = msg.ParseMode
 		edit.DisableWebPagePreview = msg.DisableWebPagePreview
 		req = edit
@@ -92,7 +104,7 @@ func (b *Bot) tryEditActiveCallback(msg tgbotapi.MessageConfig) bool {
 		if strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
 			return true
 		}
-		logger.LogMsg(logger.LogWarning, "Failed editing message %d in chat %d: %v", b.activeCallback.MessageID, msg.ChatID, err)
+		logger.LogMsg(logger.LogWarning, "Failed editing message %d in chat %d: %v", target.messageID, msg.ChatID, err)
 		return false
 	}
 	return true

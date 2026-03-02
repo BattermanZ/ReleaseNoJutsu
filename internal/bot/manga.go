@@ -13,14 +13,15 @@ import (
 	"releasenojutsu/internal/logger"
 )
 
-func (b *Bot) handleListManga(chatID int64, userID int64) {
+func (b *Bot) handleListManga(chatID int64, userID int64, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "List manga", "")
 
 	rows, err := b.db.GetAllMangaByUser(userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error querying manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotLoadManga)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 	defer func() { _ = rows.Close() }()
@@ -71,56 +72,58 @@ func (b *Bot) handleListManga(chatID int64, userID int64) {
 	msg := tgbotapi.NewMessage(chatID, messageBuilder.String())
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: keyboard}
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
-func (b *Bot) handleMangaSelection(chatID int64, userID int64, mangaID int, nextAction string) {
+func (b *Bot) handleMangaSelection(chatID int64, userID int64, mangaID int, nextAction string, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	allowed, err := b.db.MangaBelongsToUser(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error checking manga ownership: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotAccessManga)
-		b.sendListScopedMessage(msg)
+		b.sendListScopedMessage(msg, cbTarget)
 		return
 	}
 	if !allowed {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.NoAccessToManga)
-		b.sendListScopedMessage(msg)
+		b.sendListScopedMessage(msg, cbTarget)
 		return
 	}
 	switch nextAction {
 	case "menu":
-		b.sendMangaActionMenu(chatID, userID, mangaID)
+		b.sendMangaActionMenu(chatID, userID, mangaID, cbTarget)
 	case "check_new":
-		b.handleCheckNewChapters(chatID, mangaID)
+		b.handleCheckNewChapters(chatID, mangaID, cbTarget)
 	case "mark_read":
-		b.sendMarkReadStartMenu(chatID, userID, mangaID)
+		b.sendMarkReadStartMenu(chatID, userID, mangaID, cbTarget)
 	case "mark_all_read":
-		b.sendMarkAllReadConfirm(chatID, userID, mangaID)
+		b.sendMarkAllReadConfirm(chatID, userID, mangaID, cbTarget)
 	case "mark_all_read_yes":
-		b.handleMarkAllRead(chatID, userID, mangaID)
+		b.handleMarkAllRead(chatID, userID, mangaID, cbTarget)
 	case "sync_all":
-		b.handleSyncAllChapters(chatID, userID, mangaID)
+		b.handleSyncAllChapters(chatID, userID, mangaID, cbTarget)
 	case "mark_unread", "list_read": // Keep legacy callback token for backward compatibility.
-		b.sendMarkUnreadStartMenu(chatID, userID, mangaID)
+		b.sendMarkUnreadStartMenu(chatID, userID, mangaID, cbTarget)
 	case "details":
-		b.handleMangaDetails(chatID, userID, mangaID)
+		b.handleMangaDetails(chatID, userID, mangaID, cbTarget)
 	case "toggle_plus":
-		b.toggleMangaPlus(chatID, userID, mangaID)
+		b.toggleMangaPlus(chatID, userID, mangaID, cbTarget)
 	case "remove_manga":
-		b.sendRemoveMangaConfirm(chatID, userID, mangaID)
+		b.sendRemoveMangaConfirm(chatID, userID, mangaID, cbTarget)
 	case "remove_manga_yes":
-		b.handleRemoveManga(chatID, userID, mangaID)
+		b.handleRemoveManga(chatID, userID, mangaID, cbTarget)
 	default:
 		logger.LogMsg(logger.LogError, "Unknown next action: %s", nextAction)
 	}
 }
 
-func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
+func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotLoadManga)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 	unread, _ := b.db.CountUnreadChapters(mangaID)
@@ -161,15 +164,16 @@ func (b *Bot) sendMangaActionMenu(chatID int64, userID int64, mangaID int) {
 	msg := tgbotapi.NewMessage(chatID, bld.String())
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
-func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int) {
+func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotRetrieveManga)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -181,15 +185,16 @@ func (b *Bot) sendRemoveMangaConfirm(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
 		),
 	)
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
-func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int) {
+func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	title, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotLoadManga)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -201,16 +206,17 @@ func (b *Bot) sendMarkAllReadConfirm(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.Cancel, cbMangaAction(mangaID, "menu")),
 		),
 	)
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
-func (b *Bot) handleMarkAllRead(chatID int64, userID int64, mangaID int) {
+func (b *Bot) handleMarkAllRead(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Mark all chapters as read", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	if err := b.db.MarkAllChaptersAsRead(mangaID); err != nil {
 		logger.LogMsg(logger.LogError, "Error marking all chapters as read: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotUpdateProgress)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -220,17 +226,18 @@ func (b *Bot) handleMarkAllRead(chatID int64, userID int64, mangaID int) {
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.MarkAllReadDone, html.EscapeString(title), lastReadLine, unread))
 	msg.ParseMode = "HTML"
-	b.sendMangaScopedMessage(msg, mangaID)
+	b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 }
 
-func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
+func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Manga details", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	d, err := b.db.GetMangaDetails(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga details: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.CannotLoadMangaDetails)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -275,22 +282,23 @@ func (b *Bot) handleMangaDetails(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToManga, cbMangaAction(mangaID, "menu")),
 		),
 	)
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
-func (b *Bot) toggleMangaPlus(chatID int64, userID int64, mangaID int) {
+func (b *Bot) toggleMangaPlus(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	cur, err := b.db.IsMangaPlus(mangaID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga plus flag: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotUpdateMangaPlus)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 	next := !cur
 	if err := b.db.SetMangaPlus(mangaID, next); err != nil {
 		logger.LogMsg(logger.LogError, "Error setting manga plus flag: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotUpdateMangaPlus)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -301,17 +309,18 @@ func (b *Bot) toggleMangaPlus(chatID int64, userID int64, mangaID int) {
 	}
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.MangaPlusStatus, html.EscapeString(state), html.EscapeString(title)))
 	msg.ParseMode = "HTML"
-	b.sendMangaScopedMessage(msg, mangaID)
+	b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 }
 
-func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
+func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Remove manga", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	mangaTitle, err := b.db.GetMangaTitle(mangaID, userID)
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error getting manga title for removal: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotRetrieveManga)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -319,7 +328,7 @@ func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
 	if err != nil {
 		logger.LogMsg(logger.LogError, "Error deleting manga: %v", err)
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotRemoveManga)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -330,5 +339,5 @@ func (b *Bot) handleRemoveManga(chatID int64, userID int64, mangaID int) {
 			tgbotapi.NewInlineKeyboardButtonData(appcopy.Copy.Buttons.BackToList, cbListManga()),
 		),
 	)
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }

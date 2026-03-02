@@ -59,30 +59,32 @@ func (b *Bot) tryHandlePairingCode(message *tgbotapi.Message) bool {
 	return true
 }
 
-func (b *Bot) handleGeneratePairingCode(chatID int64, userID int64) {
+func (b *Bot) handleGeneratePairingCode(chatID int64, userID int64, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
+
 	if !b.isAdmin(userID) {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Prompts.AdminOnly)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 
 	code, err := generatePairingCode()
 	if err != nil {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotGeneratePair)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 
 	expiresAt := time.Now().UTC().Add(48 * time.Hour)
 	if err := b.db.CreatePairingCode(code, userID, expiresAt); err != nil {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotStorePair)
-		b.sendMessageWithMainMenuButton(msg)
+		b.sendMessageWithMainMenuButton(msg, cbTarget)
 		return
 	}
 
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Prompts.PairingCodeGenerated, html.EscapeString(code), html.EscapeString(expiresAt.Format(time.RFC1123))))
 	msg.ParseMode = "HTML"
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, cbTarget)
 }
 
 func parsePairingCode(text string) (string, bool) {

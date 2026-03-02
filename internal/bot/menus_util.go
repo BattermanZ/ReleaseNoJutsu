@@ -108,7 +108,7 @@ func appendBackToMangaListRow(keyboard [][]tgbotapi.InlineKeyboardButton) [][]tg
 	})
 }
 
-func (b *Bot) sendMangaScopedMessage(msg tgbotapi.MessageConfig, mangaID int) {
+func (b *Bot) sendMangaScopedMessage(msg tgbotapi.MessageConfig, mangaID int, target ...*callbackEditTarget) {
 	contextRows := appendBackToMangaListRow(appendBackToMangaRow(nil, mangaID))
 	if msg.ReplyMarkup != nil {
 		if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
@@ -118,14 +118,14 @@ func (b *Bot) sendMangaScopedMessage(msg tgbotapi.MessageConfig, mangaID int) {
 	} else {
 		msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: contextRows}
 	}
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, firstCallbackTarget(target...))
 }
 
-func (b *Bot) sendListScopedMessage(msg tgbotapi.MessageConfig) {
+func (b *Bot) sendListScopedMessage(msg tgbotapi.MessageConfig, target ...*callbackEditTarget) {
 	msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{
 		InlineKeyboard: appendBackToMangaListRow(nil),
 	}
-	b.sendMessageWithMainMenuButton(msg)
+	b.sendMessageWithMainMenuButton(msg, firstCallbackTarget(target...))
 }
 
 func breadcrumbLine(root string, buckets ...string) string {

@@ -13,13 +13,14 @@ import (
 	"releasenojutsu/internal/updater"
 )
 
-func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
+func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Sync all chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	mangaTitle, _ := b.db.GetMangaTitle(mangaID, userID)
 	start := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.SyncStart, html.EscapeString(mangaTitle)))
 	start.ParseMode = "HTML"
-	b.sendMangaScopedMessage(start, mangaID)
+	b.sendMangaScopedMessage(start, mangaID, cbTarget)
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -41,7 +42,8 @@ func (b *Bot) handleSyncAllChapters(chatID int64, userID int64, mangaID int) {
 	}()
 }
 
-func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
+func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int, target ...*callbackEditTarget) {
+	cbTarget := firstCallbackTarget(target...)
 	b.logAction(chatID, "Check new chapters", fmt.Sprintf("Manga ID: %d", mangaID))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -50,14 +52,14 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	res, err := b.updater.UpdateOne(ctx, mangaID)
 	if err != nil {
 		msg := tgbotapi.NewMessage(chatID, appcopy.Copy.Errors.CannotCheckUpdates)
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
 	if len(res.NewChapters) == 0 {
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(appcopy.Copy.Info.NoNewChapters, html.EscapeString(res.Title)))
 		msg.ParseMode = "HTML"
-		b.sendMangaScopedMessage(msg, mangaID)
+		b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 		return
 	}
 
@@ -68,5 +70,5 @@ func (b *Bot) handleCheckNewChapters(chatID int64, mangaID int) {
 	message := updater.FormatNewChaptersMessageHTML(res.Title, res.NewChapters, res.UnreadCount, isMangaPlus)
 	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ParseMode = "HTML"
-	b.sendMangaScopedMessage(msg, mangaID)
+	b.sendMangaScopedMessage(msg, mangaID, cbTarget)
 }

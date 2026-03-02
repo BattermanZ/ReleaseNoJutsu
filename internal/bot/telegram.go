@@ -30,7 +30,6 @@ type Bot struct {
 	updater  *updater.Updater
 
 	authorizedCache map[int64]struct{}
-	activeCallback  *tgbotapi.Message
 }
 
 // New creates a new Bot.
