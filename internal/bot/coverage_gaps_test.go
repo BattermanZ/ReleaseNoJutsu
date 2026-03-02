@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"fmt"
+	"html"
 	"strings"
 	"testing"
 
@@ -79,8 +81,9 @@ func TestSendMarkAllReadConfirm_HasConfirmButtons(t *testing.T) {
 	b.sendMarkAllReadConfirm(userID, userID, int(mangaID))
 
 	msg := api.lastMessageConfig(t)
-	if !strings.Contains(msg.Text, "Dragon Ball") {
-		t.Fatalf("missing manga title in mark-all-read confirm: %q", msg.Text)
+	want := fmt.Sprintf(appcopy.Copy.Prompts.ConfirmMarkAllRead, html.EscapeString("Dragon Ball"))
+	if msg.Text != want {
+		t.Fatalf("confirm text mismatch:\n got=%q\nwant=%q", msg.Text, want)
 	}
 	callbacks := messageCallbacks(t, msg)
 	if !hasCallback(callbacks, cbMangaAction(int(mangaID), "mark_all_read_yes")) {
@@ -118,8 +121,9 @@ func TestHandleMarkChapterAsReadAndUnread_UpdateProgress(t *testing.T) {
 	if unread != 1 {
 		t.Fatalf("unread=%d, want 1", unread)
 	}
-	if got := api.lastMessageText(t); !strings.Contains(got, "Chapter <b>2</b>") {
-		t.Fatalf("unexpected read message: %q", got)
+	wantReadMsg := fmt.Sprintf(appcopy.Copy.Info.MarkReadResult, html.EscapeString("2"), html.EscapeString("Progress Manga"))
+	if got := api.lastMessageText(t); got != wantReadMsg {
+		t.Fatalf("read message mismatch:\n got=%q\nwant=%q", got, wantReadMsg)
 	}
 
 	b.handleMarkChapterAsUnread(userID, userID, int(mangaID), "2")
@@ -137,8 +141,9 @@ func TestHandleMarkChapterAsReadAndUnread_UpdateProgress(t *testing.T) {
 	if unread != 2 {
 		t.Fatalf("unread=%d, want 2", unread)
 	}
-	if got := api.lastMessageText(t); !strings.Contains(got, "marked as unread") {
-		t.Fatalf("unexpected unread message: %q", got)
+	wantUnreadMsg := fmt.Sprintf(appcopy.Copy.Info.MarkUnreadResult, html.EscapeString("2"), html.EscapeString("Progress Manga"))
+	if got := api.lastMessageText(t); got != wantUnreadMsg {
+		t.Fatalf("unread message mismatch:\n got=%q\nwant=%q", got, wantUnreadMsg)
 	}
 }
 
@@ -271,8 +276,9 @@ func TestMarkReadStartMenu_NoUnreadShowsUpToDate(t *testing.T) {
 
 	b.sendMarkReadStartMenu(userID, userID, int(mangaID))
 
-	if got := api.lastMessageText(t); !strings.Contains(got, "all caught up") {
-		t.Fatalf("unexpected up-to-date message: %q", got)
+	want := fmt.Sprintf(appcopy.Copy.Info.UpToDate, "UpToDate Manga", b.lastReadLine(int(mangaID)))
+	if got := api.lastMessageText(t); got != want {
+		t.Fatalf("up-to-date message mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
 
@@ -290,8 +296,9 @@ func TestMarkUnreadStartMenu_NoReadShowsNothingToUnread(t *testing.T) {
 
 	b.sendMarkUnreadStartMenu(userID, userID, int(mangaID))
 
-	if got := api.lastMessageText(t); !strings.Contains(got, "Nothing to mark unread yet.") {
-		t.Fatalf("unexpected nothing-to-unread message: %q", got)
+	want := fmt.Sprintf(appcopy.Copy.Info.NothingToUnread, "Nothing Unread", b.lastReadLine(int(mangaID)))
+	if got := api.lastMessageText(t); got != want {
+		t.Fatalf("nothing-to-unread message mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
 
@@ -345,8 +352,9 @@ func TestHandleMangaSelection_OwnershipAndActionRouting(t *testing.T) {
 	}
 
 	b.handleMangaSelection(ownerID, ownerID, int(mangaID), "mark_all_read")
-	if got := api.lastMessageText(t); !strings.Contains(got, "Mark <b>all chapters</b> as read") {
-		t.Fatalf("unexpected mark-all-read confirm text: %q", got)
+	wantConfirm := fmt.Sprintf(appcopy.Copy.Prompts.ConfirmMarkAllRead, html.EscapeString("Selection Manga"))
+	if got := api.lastMessageText(t); got != wantConfirm {
+		t.Fatalf("mark-all-read confirm mismatch:\n got=%q\nwant=%q", got, wantConfirm)
 	}
 
 	if err := database.Close(); err != nil {
@@ -355,5 +363,70 @@ func TestHandleMangaSelection_OwnershipAndActionRouting(t *testing.T) {
 	b.handleMangaSelection(ownerID, ownerID, int(mangaID), "menu")
 	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.CannotAccessManga {
 		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Prompts.CannotAccessManga)
+	}
+}
+
+func TestHandleMangaSelection_ActionRouting_Coverage(t *testing.T) {
+	b, database, api, mdID := setupBotWithMangaDexServer(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+	mangaID, err := database.AddManga(mdID, "Routing Manga", userID)
+	if err != nil {
+		t.Fatalf("AddManga(): %v", err)
+	}
+	addChapterSet(t, b, mangaID, "1", "2", "3")
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "menu")
+	if got := api.lastMessageText(t); !strings.Contains(got, "Routing Manga") {
+		t.Fatalf("menu action did not render action menu, got: %q", got)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "check_new")
+	if got := api.lastMessageText(t); !strings.Contains(got, "No new chapters") {
+		t.Fatalf("check_new did not render no-new path, got: %q", got)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "mark_read")
+	readCallbacks := messageCallbacks(t, api.lastMessageConfig(t))
+	if !hasCallback(readCallbacks, cbMarkChapterRead(int(mangaID), "1")) {
+		t.Fatalf("mark_read did not render chapter callbacks, got: %v", readCallbacks)
+	}
+
+	if err := database.MarkAllChaptersAsRead(int(mangaID)); err != nil {
+		t.Fatalf("MarkAllChaptersAsRead(): %v", err)
+	}
+	b.handleMangaSelection(userID, userID, int(mangaID), "mark_unread")
+	unreadCallbacks := messageCallbacks(t, api.lastMessageConfig(t))
+	if !hasCallback(unreadCallbacks, cbMarkChapterUnread(int(mangaID), "3")) {
+		t.Fatalf("mark_unread did not render chapter callbacks, got: %v", unreadCallbacks)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "list_read")
+	aliasCallbacks := messageCallbacks(t, api.lastMessageConfig(t))
+	if !hasCallback(aliasCallbacks, cbMarkChapterUnread(int(mangaID), "3")) {
+		t.Fatalf("list_read alias did not route to unread callbacks, got: %v", aliasCallbacks)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "details")
+	if got := api.lastMessageText(t); !strings.Contains(got, "<b>Manga Details</b>") {
+		t.Fatalf("details did not render details page, got: %q", got)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "toggle_plus")
+	if got := api.lastMessageText(t); !strings.Contains(got, "Manga Plus") {
+		t.Fatalf("toggle_plus did not render status message, got: %q", got)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "remove_manga")
+	if got := api.lastMessageText(t); !strings.Contains(got, "Remove <b>Routing Manga</b>") {
+		t.Fatalf("remove_manga did not render confirmation, got: %q", got)
+	}
+
+	b.handleMangaSelection(userID, userID, int(mangaID), "remove_manga_yes")
+	wantRemoved := fmt.Sprintf(appcopy.Copy.Info.MangaRemoved, html.EscapeString("Routing Manga"))
+	if got := api.lastMessageText(t); got != wantRemoved {
+		t.Fatalf("remove_manga_yes message mismatch:\n got=%q\nwant=%q", got, wantRemoved)
 	}
 }

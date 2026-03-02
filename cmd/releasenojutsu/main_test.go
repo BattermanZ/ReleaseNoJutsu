@@ -67,3 +67,30 @@ func TestMain_DatabaseDirectoryCreationFailureIsReported(t *testing.T) {
 		t.Fatalf("expected database folder failure log, output=%s", string(out))
 	}
 }
+
+func TestMain_DatabaseOpenFailureIsReported(t *testing.T) {
+	if os.Getenv("RJN_RUN_MAIN_DB_OPEN_FAIL_HELPER") == "1" {
+		if err := os.MkdirAll(filepath.Join("database", "ReleaseNoJutsu.db"), 0o755); err != nil {
+			t.Fatalf("MkdirAll(database/ReleaseNoJutsu.db): %v", err)
+		}
+		main()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestMain_DatabaseOpenFailureIsReported$")
+	cmd.Env = append(
+		os.Environ(),
+		"RJN_RUN_MAIN_DB_OPEN_FAIL_HELPER=1",
+		"TELEGRAM_BOT_TOKEN=test-token",
+		"TELEGRAM_ALLOWED_USERS=1",
+	)
+	cmd.Dir = t.TempDir()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected helper process to exit cleanly, err=%v output=%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Failed to open database") {
+		t.Fatalf("expected database open failure log, output=%s", string(out))
+	}
+}
