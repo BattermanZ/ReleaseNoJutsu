@@ -9,6 +9,10 @@ import (
 
 func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	b.logAction(query.From.ID, "Received callback query", query.Data)
+	b.activeCallback = query.Message
+	defer func() {
+		b.activeCallback = nil
+	}()
 
 	payload, err := parseCallbackData(query.Data)
 	if err != nil {

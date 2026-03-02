@@ -35,9 +35,7 @@ func (b *Bot) sendMainMenu(chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, welcomeMessage)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
-	if _, err := b.api.Send(msg); err != nil {
-		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", chatID, err)
-	}
+	b.sendOrEditMessage(msg)
 }
 
 func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
@@ -58,9 +56,46 @@ func (b *Bot) sendMessageWithMainMenuButton(msg tgbotapi.MessageConfig) {
 		msg.ReplyMarkup = mainMenuButton
 	}
 
+	b.sendOrEditMessage(msg)
+}
+
+func (b *Bot) sendOrEditMessage(msg tgbotapi.MessageConfig) {
+	if b.tryEditActiveCallback(msg) {
+		return
+	}
+
 	if _, err := b.api.Send(msg); err != nil {
 		logger.LogMsg(logger.LogWarning, "Failed sending message to %d: %v", msg.ChatID, err)
 	}
+}
+
+func (b *Bot) tryEditActiveCallback(msg tgbotapi.MessageConfig) bool {
+	if b.activeCallback == nil || b.activeCallback.Chat == nil || b.activeCallback.Chat.ID != msg.ChatID {
+		return false
+	}
+
+	var req tgbotapi.Chattable
+	if keyboard, ok := msg.ReplyMarkup.(tgbotapi.InlineKeyboardMarkup); ok {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(msg.ChatID, b.activeCallback.MessageID, msg.Text, keyboard)
+		edit.ParseMode = msg.ParseMode
+		edit.DisableWebPagePreview = msg.DisableWebPagePreview
+		req = edit
+	} else {
+		edit := tgbotapi.NewEditMessageText(msg.ChatID, b.activeCallback.MessageID, msg.Text)
+		edit.ParseMode = msg.ParseMode
+		edit.DisableWebPagePreview = msg.DisableWebPagePreview
+		req = edit
+	}
+
+	if _, err := b.api.Request(req); err != nil {
+		// Telegram returns this when user taps the same option and content is unchanged.
+		if strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+			return true
+		}
+		logger.LogMsg(logger.LogWarning, "Failed editing message %d in chat %d: %v", b.activeCallback.MessageID, msg.ChatID, err)
+		return false
+	}
+	return true
 }
 
 func (b *Bot) sendHelpMessage(chatID int64) {

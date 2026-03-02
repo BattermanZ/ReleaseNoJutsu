@@ -98,12 +98,42 @@ func TestHandleCallbackQuery_MainMenu(t *testing.T) {
 		Data: cbMainMenu(),
 		From: &tgbotapi.User{ID: userID},
 		Message: &tgbotapi.Message{
+			MessageID: 100,
 			Chat: &tgbotapi.Chat{ID: userID},
 		},
 	})
 
 	if got := api.lastMessageText(t); got != appcopy.Copy.Info.WelcomeTitle {
 		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Info.WelcomeTitle)
+	}
+	if got := len(api.sent); got != 0 {
+		t.Fatalf("expected callback flow to edit existing message, sends=%d", got)
+	}
+}
+
+func TestHandleCallbackQuery_EditFailureFallsBackToSend(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	api.failEditRequests = true
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+
+	b.handleCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "cb-main-fallback",
+		Data: cbMainMenu(),
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			MessageID: 101,
+			Chat:      &tgbotapi.Chat{ID: userID},
+		},
+	})
+
+	if got := api.lastMessageText(t); got != appcopy.Copy.Info.WelcomeTitle {
+		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Info.WelcomeTitle)
+	}
+	if got := len(api.sent); got == 0 {
+		t.Fatal("expected send fallback after edit failure")
 	}
 }
 

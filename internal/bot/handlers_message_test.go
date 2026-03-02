@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -14,15 +15,32 @@ import (
 )
 
 type fakeTelegramAPI struct {
-	mu   sync.Mutex
-	sent []tgbotapi.Chattable
+	mu               sync.Mutex
+	sent             []tgbotapi.Chattable
+	outboundMessages []tgbotapi.MessageConfig
+	failEditRequests bool
 }
 
 func (f *fakeTelegramAPI) GetUpdatesChan(_ tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
 	return nil
 }
 
-func (f *fakeTelegramAPI) Request(_ tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+func (f *fakeTelegramAPI) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	switch cfg := c.(type) {
+	case tgbotapi.EditMessageTextConfig:
+		if f.failEditRequests {
+			return nil, errors.New("forced edit failure")
+		}
+		msg := tgbotapi.NewMessage(cfg.ChatID, cfg.Text)
+		msg.ParseMode = cfg.ParseMode
+		if cfg.ReplyMarkup != nil {
+			msg.ReplyMarkup = *cfg.ReplyMarkup
+		}
+		f.outboundMessages = append(f.outboundMessages, msg)
+	}
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 
@@ -30,6 +48,9 @@ func (f *fakeTelegramAPI) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, c)
+	if msg, ok := c.(tgbotapi.MessageConfig); ok {
+		f.outboundMessages = append(f.outboundMessages, msg)
+	}
 	return tgbotapi.Message{}, nil
 }
 
@@ -44,26 +65,18 @@ func (f *fakeTelegramAPI) lastMessageConfig(t *testing.T) tgbotapi.MessageConfig
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.sent) == 0 {
+	if len(f.outboundMessages) == 0 {
 		t.Fatal("no sent messages")
 	}
-	msg, ok := f.sent[len(f.sent)-1].(tgbotapi.MessageConfig)
-	if !ok {
-		t.Fatalf("last sent message type = %T, want tgbotapi.MessageConfig", f.sent[len(f.sent)-1])
-	}
-	return msg
+	return f.outboundMessages[len(f.outboundMessages)-1]
 }
 
 func (f *fakeTelegramAPI) sentMessageTexts(t *testing.T) []string {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]string, 0, len(f.sent))
-	for _, c := range f.sent {
-		msg, ok := c.(tgbotapi.MessageConfig)
-		if !ok {
-			t.Fatalf("sent message type = %T, want tgbotapi.MessageConfig", c)
-		}
+	out := make([]string, 0, len(f.outboundMessages))
+	for _, msg := range f.outboundMessages {
 		out = append(out, msg.Text)
 	}
 	return out
