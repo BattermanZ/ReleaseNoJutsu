@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -15,11 +16,16 @@ type fakeStore struct {
 	title      string
 	lastSeenAt time.Time
 
-	added []mangadex.ChapterAttributes
+	list    []db.Manga
+	listErr error
+	added   []mangadex.ChapterAttributes
 }
 
-func (s *fakeStore) ListManga() ([]db.Manga, error) { // not used
-	return nil, nil
+func (s *fakeStore) ListManga() ([]db.Manga, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.list, nil
 }
 
 func (s *fakeStore) GetManga(mangaID int) (string, string, time.Time, time.Time, error) {
@@ -370,5 +376,38 @@ func TestUpdateOne_ContinuesPastFuturePublishOnlyPage(t *testing.T) {
 	}
 	if !res.LastSeenAt.Equal(created) {
 		t.Fatalf("LastSeenAt=%v, want %v", res.LastSeenAt, created)
+	}
+}
+
+func TestUpdateAll_ListMangaError(t *testing.T) {
+	store := &fakeStore{listErr: errors.New("boom")}
+	md := &fakeMangaDex{feed: &mangadex.ChapterFeedResponse{Data: []mangadex.Chapter{}}}
+	u := New(store, md, md)
+
+	if _, err := u.UpdateAll(context.Background()); err == nil {
+		t.Fatal("UpdateAll() expected error from ListManga")
+	}
+}
+
+func TestUpdateAll_PropagatesUserIDsInResults(t *testing.T) {
+	lastSeen := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		list: []db.Manga{
+			{ID: 1, UserID: 42, MangaDexID: "md-1", Title: "One", LastSeenAt: lastSeen},
+			{ID: 2, UserID: 84, MangaDexID: "md-2", Title: "Two", LastSeenAt: lastSeen},
+		},
+	}
+	md := &fakeMangaDex{feed: &mangadex.ChapterFeedResponse{Data: []mangadex.Chapter{}}}
+	u := New(store, md, md)
+
+	results, err := u.UpdateAll(context.Background())
+	if err != nil {
+		t.Fatalf("UpdateAll(): %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results len=%d, want 2", len(results))
+	}
+	if results[0].UserID != 42 || results[1].UserID != 84 {
+		t.Fatalf("unexpected user ids in results: %+v", results)
 	}
 }

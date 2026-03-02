@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 )
 
 type runTelegramAPI struct {
+	mu        sync.Mutex
 	updatesCh chan tgbotapi.Update
 	sent      []tgbotapi.Chattable
 	requested []tgbotapi.Chattable
@@ -26,11 +28,15 @@ func (f *runTelegramAPI) GetUpdatesChan(_ tgbotapi.UpdateConfig) tgbotapi.Update
 }
 
 func (f *runTelegramAPI) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.requested = append(f.requested, c)
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 
 func (f *runTelegramAPI) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, c)
 	return tgbotapi.Message{}, nil
 }
@@ -39,6 +45,8 @@ func (f *runTelegramAPI) StopReceivingUpdates() {}
 
 func (f *runTelegramAPI) lastMessageText(t *testing.T) string {
 	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if len(f.sent) == 0 {
 		t.Fatal("no sent messages")
 	}
@@ -47,6 +55,12 @@ func (f *runTelegramAPI) lastMessageText(t *testing.T) string {
 		t.Fatalf("last sent message type = %T, want tgbotapi.MessageConfig", f.sent[len(f.sent)-1])
 	}
 	return msg.Text
+}
+
+func (f *runTelegramAPI) sentCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.sent)
 }
 
 func setupBotForRunTests(t *testing.T, api TelegramAPI) (*Bot, *db.DB) {
@@ -107,7 +121,7 @@ func TestRun_NonPrivateMessageGetsPrivateOnlyWarning(t *testing.T) {
 		},
 	}
 
-	waitUntil(t, time.Second, func() bool { return len(api.sent) > 0 })
+	waitUntil(t, time.Second, func() bool { return api.sentCount() > 0 })
 	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.PrivateChatOnly {
 		t.Fatalf("last message=%q, want %q", got, appcopy.Copy.Prompts.PrivateChatOnly)
 	}
@@ -143,7 +157,7 @@ func TestRun_NonPrivateCallbackGetsPrivateOnlyWarning(t *testing.T) {
 		},
 	}
 
-	waitUntil(t, time.Second, func() bool { return len(api.sent) > 0 })
+	waitUntil(t, time.Second, func() bool { return api.sentCount() > 0 })
 	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.PrivateChatOnly {
 		t.Fatalf("last message=%q, want %q", got, appcopy.Copy.Prompts.PrivateChatOnly)
 	}
@@ -216,8 +230,8 @@ func TestTryHandlePairingCode_InvalidFormatIgnored(t *testing.T) {
 	if ok {
 		t.Fatal("expected invalid text not to be treated as pairing")
 	}
-	if len(api.sent) != 0 {
-		t.Fatalf("unexpected sent messages: %d", len(api.sent))
+	if got := len(api.sentMessageTexts(t)); got != 0 {
+		t.Fatalf("unexpected sent messages: %d", got)
 	}
 }
 

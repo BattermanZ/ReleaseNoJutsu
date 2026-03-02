@@ -40,3 +40,30 @@ func TestMain_DatabasePathDirectoryIsCreatable(t *testing.T) {
 		t.Fatalf("unexpected db dir %q", dir)
 	}
 }
+
+func TestMain_DatabaseDirectoryCreationFailureIsReported(t *testing.T) {
+	if os.Getenv("RJN_RUN_MAIN_DB_DIR_FAIL_HELPER") == "1" {
+		if err := os.WriteFile("database", []byte("not-a-directory"), 0o600); err != nil {
+			t.Fatalf("WriteFile(database): %v", err)
+		}
+		main()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestMain_DatabaseDirectoryCreationFailureIsReported$")
+	cmd.Env = append(
+		os.Environ(),
+		"RJN_RUN_MAIN_DB_DIR_FAIL_HELPER=1",
+		"TELEGRAM_BOT_TOKEN=test-token",
+		"TELEGRAM_ALLOWED_USERS=1",
+	)
+	cmd.Dir = t.TempDir()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected helper process to exit cleanly, err=%v output=%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Failed to create database folder") {
+		t.Fatalf("expected database folder failure log, output=%s", string(out))
+	}
+}

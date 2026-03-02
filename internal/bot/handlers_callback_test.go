@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"releasenojutsu/internal/appcopy"
 )
 
 func TestHandleCallbackQuery_NavigationClearsPendingState(t *testing.T) {
@@ -50,5 +52,75 @@ func TestHandleCallbackQuery_NavigationClearsPendingState(t *testing.T) {
 				t.Fatalf("state mismatch: got state=%q payload=%q has=%v, want state=%q has=%v", state, payload, hasState, tc.wantStateAfter, tc.wantHasState)
 			}
 		})
+	}
+}
+
+func TestHandleCallbackQuery_CancelPendingSendsMessageAndClearsState(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+	if err := database.SetUserPendingState(userID, pendingStateAddManga, ""); err != nil {
+		t.Fatalf("SetUserPendingState(): %v", err)
+	}
+
+	b.handleCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "cb-cancel",
+		Data: cbCancelPending(),
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: userID},
+		},
+	})
+
+	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.AddMangaCancelled {
+		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Prompts.AddMangaCancelled)
+	}
+	state, payload, hasState, err := database.GetUserPendingState(userID)
+	if err != nil {
+		t.Fatalf("GetUserPendingState(): %v", err)
+	}
+	if hasState || state != "" || payload != "" {
+		t.Fatalf("pending state not cleared: state=%q payload=%q has=%v", state, payload, hasState)
+	}
+}
+
+func TestHandleCallbackQuery_MainMenu(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+
+	b.handleCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "cb-main",
+		Data: cbMainMenu(),
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: userID},
+		},
+	})
+
+	if got := api.lastMessageText(t); got != appcopy.Copy.Info.WelcomeTitle {
+		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Info.WelcomeTitle)
+	}
+}
+
+func TestHandleCallbackQuery_InvalidPayloadReturnsWithoutSend(t *testing.T) {
+	b, _, api := setupBotForMessageTests(t)
+	userID := int64(42)
+
+	b.handleCallbackQuery(&tgbotapi.CallbackQuery{
+		ID:   "cb-invalid",
+		Data: "not_a_real_callback_payload",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: userID},
+		},
+	})
+
+	if got := len(api.sentMessageTexts(t)); got != 0 {
+		t.Fatalf("expected no messages for invalid callback parse, got %d", got)
 	}
 }

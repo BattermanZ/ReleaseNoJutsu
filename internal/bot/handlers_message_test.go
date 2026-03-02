@@ -220,3 +220,67 @@ func TestSendAddMangaPrompt_HasCancelAction(t *testing.T) {
 		t.Fatalf("cancel add button not found")
 	}
 }
+
+func TestHandleMessage_HelpCommand(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+
+	msg := &tgbotapi.Message{
+		Text: "/help",
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 5},
+		},
+		From: &tgbotapi.User{ID: userID},
+		Chat: &tgbotapi.Chat{ID: userID},
+	}
+	b.handleMessage(msg)
+
+	got := api.lastMessageConfig(t)
+	if got.Text != appcopy.Copy.Info.HelpText {
+		t.Fatalf("help text mismatch")
+	}
+}
+
+func TestHandleMessage_UnknownCommand(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+
+	msg := &tgbotapi.Message{
+		Text: "/doesnotexist",
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 12},
+		},
+		From: &tgbotapi.User{ID: userID},
+		Chat: &tgbotapi.Chat{ID: userID},
+	}
+	b.handleMessage(msg)
+
+	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.UnknownCommand {
+		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Prompts.UnknownCommand)
+	}
+}
+
+func TestHandleMessage_UnknownPlainText(t *testing.T) {
+	b, database, api := setupBotForMessageTests(t)
+	userID := int64(42)
+	if err := database.EnsureUser(userID, false); err != nil {
+		t.Fatalf("EnsureUser(): %v", err)
+	}
+
+	msg := &tgbotapi.Message{
+		Text: "hello there",
+		From: &tgbotapi.User{ID: userID},
+		Chat: &tgbotapi.Chat{ID: userID},
+	}
+	b.handleMessage(msg)
+
+	if got := api.lastMessageText(t); got != appcopy.Copy.Prompts.UnknownMessage {
+		t.Fatalf("message=%q, want %q", got, appcopy.Copy.Prompts.UnknownMessage)
+	}
+}

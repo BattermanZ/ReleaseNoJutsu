@@ -27,3 +27,27 @@ func TestFormatNewChaptersMessageHTML_EscapesDynamicContent(t *testing.T) {
 		t.Fatalf("expected escaped chapter title, got: %q", msg)
 	}
 }
+
+func TestFormatNewChaptersMessage_PlainTextIncludesWarningAndFooter(t *testing.T) {
+	msg := FormatNewChaptersMessage(
+		"Dragon Ball",
+		[]mangadex.ChapterInfo{
+			{Number: "104", Title: "The Birth of Saiyaman X"},
+		},
+		3,
+		true,
+	)
+
+	if !strings.Contains(msg, "Dragon Ball has new chapters:") {
+		t.Fatalf("missing plain header in message: %q", msg)
+	}
+	if !strings.Contains(msg, "Ch. 104") {
+		t.Fatalf("missing chapter number label: %q", msg)
+	}
+	if !strings.Contains(msg, "3+ unread chapters piling up") {
+		t.Fatalf("missing warning line: %q", msg)
+	}
+	if !strings.Contains(msg, "Use /start to open the menu") {
+		t.Fatalf("missing footer line: %q", msg)
+	}
+}
